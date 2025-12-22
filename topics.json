@@ -1,0 +1,172 @@
+{
+  "categories": [
+    {
+      "name": "Core Programming",
+      "subcategories": [
+        {
+          "name": "Python",
+          "topics": [
+            "Data structures: lists, dicts, sets, tuples",
+            "Control flow & functions",
+            "List/dict comprehensions",
+            "Writing clean, reusable functions",
+            "Basic OOP (classes, __init__, methods)",
+            "Virtual environments, pip/conda",
+            "Reading & writing files (CSV, JSON, Parquet)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Data Manipulation & Analysis",
+      "subcategories": [
+        {
+          "name": "pandas & NumPy",
+          "topics": [
+            "groupby, agg, transform",
+            "Merging/joining data",
+            "Handling missing data",
+            "Datetime operations",
+            "Vectorization vs loops",
+            "Performance awareness (when pandas breaks)"
+          ]
+        },
+        {
+          "name": "SQL",
+          "topics": [
+            "SELECT, WHERE, JOIN, GROUP BY, HAVING",
+            "Window functions (ROW_NUMBER, RANK, LAG)",
+            "Subqueries & CTEs",
+            "Query optimization basics",
+            "Translating business questions → SQL logic"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Statistics & Probability",
+      "subcategories": [
+        {
+          "name": "Probability rules & distributions",
+          "subcategories": [
+            {
+              "name": "Normal",
+              "topics": []
+            },
+            {
+              "name": "Binomial",
+              "topics": []
+            },
+            {
+              "name": "Poisson",
+              "topics": []
+            }
+          ]
+        }
+      ],
+      "topics": [
+        "Descriptive stats (mean, median, variance)",
+        "Sampling & bias",
+        "Confidence intervals",
+        "Hypothesis testing",
+        "p-values (interpretation, not worship)",
+        "A/B testing",
+        "Correlation vs causation"
+      ]
+    },
+    {
+      "name": "Machine Learning",
+      "subcategories": [
+        {
+          "name": "Supervised Learning",
+          "subcategories": [
+            {
+              "name": "Regularization",
+              "topics": [
+                "L1/L2 Regularization",
+                "Ridge Regression",
+                "Lasso Regression"
+              ]
+            },
+            {
+              "name": "Regression Models",
+              "topics": [
+                "Linear Regression",
+                "Logistic Regression"
+              ]
+            },
+            {
+              "name": "Tree-Based Models",
+              "subcategories": [
+                {
+                  "name": "Decision Trees",
+                  "topics": [
+                    "Decision Tree Basics",
+                    "Splitting Criteria",
+                    "Pruning"
+                  ]
+                },
+                {
+                  "name": "Random Forests",
+                  "topics": [
+                    "Ensemble Methods",
+                    "Bootstrap Aggregating",
+                    "Feature Importance"
+                  ]
+                },
+                {
+                  "name": "Gradient Boosting",
+                  "subcategories": [
+                    {
+                      "name": "XGBoost",
+                      "topics": [
+                        "XGBoost Basics",
+                        "XGBoost Parameters",
+                        "XGBoost Performance"
+                      ]
+                    },
+                    {
+                      "name": "LightGBM",
+                      "topics": [
+                        "LightGBM Basics",
+                        "LightGBM Parameters",
+                        "LightGBM Performance"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "Model Evaluation",
+              "topics": [
+                "ROC Curves",
+                "Precision/Recall",
+                "Model Evaluation Metrics"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Unsupervised Learning",
+          "topics": [
+            "k-means",
+            "PCA",
+            "Clustering Interpretation"
+          ]
+        },
+        {
+          "name": "Practical ML Skills",
+          "topics": [
+            "Train/Validation/Test Splits",
+            "Feature Engineering",
+            "Overfitting vs Underfitting",
+            "Model Explainability (SHAP, feature importance)"
+          ]
+        }
+      ]
+    }
+  ],
+  "uncategorized_topics": []
+}
+

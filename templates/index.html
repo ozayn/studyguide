@@ -287,7 +287,7 @@
 
         .topic-tabs {
             display: flex;
-            gap: 8px;
+            gap: 10px;
             margin-bottom: 24px;
             flex-wrap: wrap;
             border-bottom: 2px solid var(--border);
@@ -295,7 +295,7 @@
         }
 
         .topic-tab {
-            padding: 10px 20px;
+            padding: 12px 24px;
             border-radius: 8px;
             font-size: 0.9375rem;
             font-weight: 500;
@@ -305,6 +305,8 @@
             background: var(--bg);
             color: var(--text);
             letter-spacing: -0.01em;
+            min-width: fit-content;
+            white-space: nowrap;
         }
 
         .topic-tab:hover {
@@ -320,16 +322,32 @@
 
         .topic-category-content {
             display: none;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
         }
 
         .topic-category-content.active {
+            display: block;
+        }
+
+        .subcategory-header-section {
+            margin-top: 24px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .subcategory-header-section:first-child {
+            margin-top: 0;
+        }
+
+        .subcategory-topics-grid {
             display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
         }
 
         @media (max-width: 768px) {
-            .topic-category-content.active {
+            .subcategory-topics-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -424,6 +442,54 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
             position: relative;
             animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @media (max-width: 768px) {
+            .modal-overlay {
+                padding: 16px;
+            }
+
+            .modal-card {
+                padding: 24px 20px;
+                max-height: 90vh;
+                border-radius: 12px;
+            }
+
+            .modal-header {
+                margin-bottom: 20px;
+                padding-bottom: 12px;
+            }
+
+            .modal-title {
+                font-size: 1.125rem;
+            }
+
+            .modal-close {
+                width: 36px;
+                height: 36px;
+                font-size: 1.75rem;
+                min-height: 44px; /* Better touch target */
+            }
+
+            .ai-guidance {
+                font-size: 0.875rem;
+                line-height: 1.7;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .modal-overlay {
+                padding: 12px;
+            }
+
+            .modal-card {
+                padding: 20px 16px;
+                max-height: 95vh;
+            }
+
+            .modal-title {
+                font-size: 1rem;
+            }
         }
 
         @keyframes modalSlideIn {
@@ -799,10 +865,11 @@
             }
 
             .topic-tab {
-                padding: 10px 16px;
+                padding: 12px 20px;
                 font-size: 0.875rem;
                 white-space: nowrap;
                 flex-shrink: 0;
+                min-width: fit-content;
             }
 
             .topic-item {
@@ -925,7 +992,7 @@
             <h1>My Study Guide</h1>
         </div>
 
-        <!-- New Interview Form -->
+        <!-- New Study Material Form -->
         <div class="card" id="new-interview-card">
             <form id="interview-form" class="form-minimal">
                 <div class="input-group">
@@ -944,13 +1011,13 @@
             </form>
         </div>
 
-        <!-- Interviews List -->
+        <!-- Study Materials List -->
         <div id="interviews-section" class="hidden">
-            <div class="section-title">Interviews</div>
+            <div class="section-title">Study Materials</div>
             <div id="interviews-list" class="interview-grid"></div>
         </div>
 
-        <!-- Interview Detail View -->
+        <!-- Study Material Detail View -->
         <div id="interview-detail" class="hidden">
             <a href="#" class="back-link" onclick="showInterviewList(); return false;">
                 ← Back
@@ -964,7 +1031,7 @@
 
                 <div class="info-box">
                     <div class="info-row">
-                        <span class="info-label">Interview Date</span>
+                        <span class="info-label">Date</span>
                         <span class="info-value" id="detail-date"></span>
                     </div>
                     <div class="info-row">
@@ -1005,8 +1072,8 @@
 
                 <div class="study-plan">
                     <div class="section-title">All Topics</div>
-                    <button class="btn btn-ghost" onclick="generateStudyPlan()">View All Topics</button>
-                    <div id="study-plan-content" style="margin-top: 24px;"></div>
+                    <button class="btn btn-ghost" onclick="toggleAllTopics()" id="toggle-all-topics-btn">View All Topics</button>
+                    <div id="study-plan-content" style="margin-top: 24px; display: none;"></div>
                 </div>
             </div>
         </div>
@@ -1102,7 +1169,7 @@
                     loadInterviews();
                 }
             } catch (error) {
-                console.error('Error creating interview:', error);
+                console.error('Error creating study material:', error);
             }
         });
 
@@ -1156,7 +1223,7 @@
                 sectionEl.classList.remove('hidden');
                 
                 if (interviews.length === 0) {
-                    listEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">No interviews yet</div></div>';
+                    listEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">No study materials yet</div></div>';
                     return;
                 }
 
@@ -1172,11 +1239,11 @@
                     return `
                         <div class="interview-card" onclick="loadInterviewDetail(${interview.id})">
                             <div class="interview-card-actions" onclick="event.stopPropagation();">
-                                <button class="interview-delete-btn" onclick="deleteInterview(${interview.id})" title="Delete interview">×</button>
+                                <button class="interview-delete-btn" onclick="deleteInterview(${interview.id})" title="Delete study material">×</button>
                             </div>
                             <div class="interview-header">
                                 <div>
-                                    <div class="interview-title">${interview.position || 'Interview'}</div>
+                                    <div class="interview-title">${interview.position || 'Study Material'}</div>
                                     <div class="interview-company">${interview.company || 'Generic Company (US)'}</div>
                                 </div>
                                 <div class="interview-date">${dateDisplay}</div>
@@ -1193,7 +1260,7 @@
                 // Always show the section if there are interviews
                 sectionEl.classList.remove('hidden');
             } catch (error) {
-                console.error('Error loading interviews:', error);
+                console.error('Error loading study materials:', error);
             }
         }
 
@@ -1203,7 +1270,7 @@
                 const response = await fetch(`/api/interviews/${interviewId}`);
                 const interview = await response.json();
 
-                document.getElementById('detail-title').textContent = interview.position || 'Interview';
+                document.getElementById('detail-title').textContent = interview.position || 'Study Material';
                 document.getElementById('detail-company').textContent = interview.company || 'Generic Company (US)';
                 
                 if (interview.interview_date) {
@@ -1223,17 +1290,58 @@
 
                 const topicsListEl = document.getElementById('topics-list');
                 if (interview.topics && interview.topics.length > 0) {
-                    // Group topics by category
-                    const topicsByCategory = {};
+                    // Group topics by main category and subcategory
+                    const topicsByMainCategory = {};
                     const uncategorized = [];
+                    
+                    // Recursive function to build nested structure
+                    function addTopicToStructure(parts, topic, structure) {
+                        if (parts.length === 0) {
+                            // This shouldn't happen, but handle it
+                            return;
+                        }
+                        
+                        const current = parts[0];
+                        const remaining = parts.slice(1);
+                        
+                        if (remaining.length === 0) {
+                            // Last level - add topic
+                            if (!structure[current]) {
+                                structure[current] = [];
+                            }
+                            structure[current].push(topic);
+                        } else {
+                            // Intermediate level - create nested object
+                            if (!structure[current]) {
+                                structure[current] = {};
+                            }
+                            addTopicToStructure(remaining, topic, structure[current]);
+                        }
+                    }
                     
                     interview.topics.forEach(topic => {
                         const category = topic.category_name || null;
                         if (category) {
-                            if (!topicsByCategory[category]) {
-                                topicsByCategory[category] = [];
+                            if (category.includes(' > ')) {
+                                const parts = category.split(' > ');
+                                const mainCategory = parts[0];
+                                
+                                if (!topicsByMainCategory[mainCategory]) {
+                                    topicsByMainCategory[mainCategory] = {};
+                                }
+                                
+                                // Recursively add topic to nested structure
+                                addTopicToStructure(parts.slice(1), topic, topicsByMainCategory[mainCategory]);
+                            } else {
+                                // Legacy: category without subcategory
+                                if (!topicsByMainCategory[category]) {
+                                    topicsByMainCategory[category] = {};
+                                }
+                                if (!topicsByMainCategory[category]['_default']) {
+                                    topicsByMainCategory[category]['_default'] = [];
+                                }
+                                topicsByMainCategory[category]['_default'].push(topic);
                             }
-                            topicsByCategory[category].push(topic);
                         } else {
                             uncategorized.push(topic);
                         }
@@ -1257,12 +1365,12 @@
                         '#FFB6C1'  // Light Pink
                     ];
                     
-                    const categories = Object.keys(topicsByCategory);
+                    const mainCategories = Object.keys(topicsByMainCategory);
                     const hasUncategorized = uncategorized.length > 0;
                     
                     // Generate tabs only if we have categories or uncategorized topics
-                    if (categories.length > 0 || hasUncategorized) {
-                        categories.forEach((category, index) => {
+                    if (mainCategories.length > 0 || hasUncategorized) {
+                        mainCategories.forEach((mainCategory, index) => {
                             const color = categoryColors[index % categoryColors.length];
                             const categoryId = `category-${index}`;
                             tabsHtml += `
@@ -1270,7 +1378,7 @@
                                         onclick="window.switchTopicTab('${categoryId}')" 
                                         style="color: ${color}; border-color: ${color};"
                                         id="tab-${categoryId}">
-                                    ${category}
+                                    ${mainCategory}
                                 </button>
                             `;
                         });
@@ -1279,7 +1387,7 @@
                         if (hasUncategorized) {
                             const uncategorizedId = 'category-uncategorized';
                             tabsHtml += `
-                                <button class="topic-tab ${categories.length === 0 ? 'active' : ''}" 
+                                <button class="topic-tab ${mainCategories.length === 0 ? 'active' : ''}" 
                                         onclick="window.switchTopicTab('${uncategorizedId}')" 
                                         style="color: #888; border-color: #888;"
                                         id="tab-${uncategorizedId}">
@@ -1289,45 +1397,77 @@
                         }
                     }
                     
-                    // Generate content for each category
-                    categories.forEach((category, index) => {
+                    // Recursive function to render nested structure
+                    function renderNestedStructure(node, color, depth = 0) {
+                        let html = '';
+                        const indent = depth * 20;
+                        const fontSize = Math.max(0.875, 1.125 - (depth * 0.05));
+                        const opacity = Math.max(0.7, 1 - (depth * 0.1));
+                        
+                        Object.keys(node).forEach(key => {
+                            if (key === '_default') return; // Skip default keys
+                            
+                            const value = node[key];
+                            
+                            if (Array.isArray(value)) {
+                                // This is a leaf node with topics
+                                html += '<div class="subcategory-topics-grid">';
+                                value.forEach(topic => {
+                                    html += `
+                                        <div class="topic-item topic-subtopic" style="border-left: 3px solid ${color};">
+                                            <div class="topic-header">
+                                                <div class="topic-content">
+                                                    <div class="topic-name">${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</div>
+                                                    <div class="topic-tags">
+                                                        <span class="tag tag-priority-${topic.priority || 'medium'}">${topic.priority || 'medium'}</span>
+                                                        <span class="tag tag-status tag-${topic.status || 'pending'}">${topic.status || 'pending'}</span>
+                                                        ${topic.notes ? `<span style="font-size: 0.75rem; color: var(--text-light);">${topic.notes}</span>` : ''}
+                                                    </div>
+                                                </div>
+                                                <div class="topic-actions">
+                                                    <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
+                                                        ${topic.ai_guidance ? '🔄' : '✨'}
+                                                    </button>
+                                                    <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                                                        ${topic.status === 'completed' ? 'Undo' : 'Done'}
+                                                    </button>
+                                                    <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
+                                                </div>
+                                            </div>
+                                            ${topic.ai_guidance ? `
+                                                <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
+                                                    📖 View Guidance
+                                                </button>
+                                            ` : ''}
+                                        </div>
+                                    `;
+                                });
+                                html += '</div>';
+                            } else if (typeof value === 'object') {
+                                // This is a nested structure - render header and recurse
+                                html += `
+                                    <div class="subcategory-header-section" style="margin-top: ${depth === 0 ? '20' : '16'}px; margin-bottom: ${depth === 0 ? '12' : '10'}px; padding-bottom: ${depth === 0 ? '8' : '6'}px; border-bottom: ${depth === 0 ? '2' : '1'}px solid var(--border); ${depth > 0 ? `margin-left: ${indent}px; border-left: 2px solid ${color}; padding-left: 12px;` : ''}">
+                                        <h${depth === 0 ? '3' : '4'} style="font-size: ${fontSize}rem; font-weight: 600; color: ${color}; margin: 0; opacity: ${opacity};">${key}</h${depth === 0 ? '3' : '4'}>
+                                    </div>
+                                `;
+                                html += renderNestedStructure(value, color, depth + 1);
+                            }
+                        });
+                        
+                        return html;
+                    }
+                    
+                    // Generate content for each main category
+                    mainCategories.forEach((mainCategory, index) => {
                         const categoryId = `category-${index}`;
                         const color = categoryColors[index % categoryColors.length];
                         let categoryContent = '';
                         
-                        topicsByCategory[category].forEach(topic => {
-                            categoryContent += `
-                                <div class="topic-item topic-subtopic" style="border-left: 3px solid ${color};">
-                                    <div class="topic-header">
-                                        <div class="topic-content">
-                                            <div class="topic-name">${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</div>
-                                            <div class="topic-tags">
-                                                <span class="tag tag-priority-${topic.priority || 'medium'}">${topic.priority || 'medium'}</span>
-                                                <span class="tag tag-status tag-${topic.status || 'pending'}">${topic.status || 'pending'}</span>
-                                                ${topic.notes ? `<span style="font-size: 0.75rem; color: var(--text-light);">${topic.notes}</span>` : ''}
-                                            </div>
-                                        </div>
-                                        <div class="topic-actions">
-                                            <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
-                                                ${topic.ai_guidance ? '🔄' : '✨'}
-                                            </button>
-                                            <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
-                                                ${topic.status === 'completed' ? 'Undo' : 'Done'}
-                                            </button>
-                                            <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
-                                        </div>
-                                    </div>
-                                    ${topic.ai_guidance ? `
-                                        <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
-                                            📖 View Guidance
-                                        </button>
-                                    ` : ''}
-                                </div>
-                            `;
-                        });
+                        // Recursively render the nested structure
+                        categoryContent = renderNestedStructure(topicsByMainCategory[mainCategory], color, 0);
                         
                         contentHtml += `
-                            <div class="topic-category-content ${index === 0 ? 'active' : ''}" id="content-${categoryId}" style="display: ${index === 0 ? 'grid' : 'none'}; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                            <div class="topic-category-content ${index === 0 ? 'active' : ''}" id="content-${categoryId}">
                                 ${categoryContent}
                             </div>
                         `;
@@ -1392,8 +1532,20 @@
                 document.getElementById('new-interview-card').classList.add('hidden');
                 document.getElementById('interviews-section').classList.add('hidden');
                 document.getElementById('interview-detail').classList.remove('hidden');
+                
+                // Reset all topics visibility state
+                allTopicsVisible = false;
+                const planEl = document.getElementById('study-plan-content');
+                const btn = document.getElementById('toggle-all-topics-btn');
+                if (planEl) {
+                    planEl.style.display = 'none';
+                    planEl.innerHTML = '';
+                }
+                if (btn) {
+                    btn.textContent = 'View All Topics';
+                }
             } catch (error) {
-                console.error('Error loading interview detail:', error);
+                console.error('Error loading study material detail:', error);
             }
         }
 
@@ -1435,7 +1587,7 @@
         };
 
         async function deleteInterview(interviewId) {
-            if (!confirm('Are you sure you want to delete this interview? This will also delete all associated topics.')) {
+            if (!confirm('Are you sure you want to delete this study material? This will also delete all associated topics.')) {
                 return;
             }
 
@@ -1448,11 +1600,11 @@
                     loadInterviews();
                 } else {
                     const data = await response.json();
-                    alert(data.error || 'Failed to delete interview');
+                    alert(data.error || 'Failed to delete study material');
                 }
             } catch (error) {
-                console.error('Error deleting interview:', error);
-                alert('Failed to delete interview. Please try again.');
+                console.error('Error deleting study material:', error);
+                alert('Failed to delete study material. Please try again.');
             }
         }
 
@@ -1574,6 +1726,28 @@
                 .catch(error => {
                     console.error('Error loading guidance:', error);
                 });
+        }
+
+        let allTopicsVisible = false;
+
+        async function toggleAllTopics() {
+            const planEl = document.getElementById('study-plan-content');
+            const btn = document.getElementById('toggle-all-topics-btn');
+            
+            if (allTopicsVisible) {
+                // Hide topics
+                planEl.style.display = 'none';
+                btn.textContent = 'View All Topics';
+                allTopicsVisible = false;
+            } else {
+                // Show topics - load if not already loaded
+                if (!planEl.innerHTML || planEl.innerHTML.trim() === '') {
+                    await generateStudyPlan();
+                }
+                planEl.style.display = 'block';
+                btn.textContent = 'Hide All Topics';
+                allTopicsVisible = true;
+            }
         }
 
         async function generateStudyPlan() {

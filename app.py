@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 from datetime import datetime, timedelta
 import sqlite3
 import os
+import json
 
 # Load environment variables from .env file
 try:
@@ -83,10 +84,50 @@ def init_db():
 def index():
     return render_template('index.html')
 
+@app.route('/admin')
+def admin():
+    return render_template('admin.html')
+
 @app.route('/favicon.ico')
 def favicon():
     # Return 204 No Content to prevent 404 errors
     return '', 204
+
+@app.route('/api/topics', methods=['GET'])
+def get_topics_config():
+    """Get topics configuration from JSON file"""
+    try:
+        with open('topics.json', 'r') as f:
+            data = json.load(f)
+            return jsonify(data)
+    except FileNotFoundError:
+        return jsonify({'categories': [], 'uncategorized_topics': []})
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid JSON file'}), 500
+
+@app.route('/api/topics', methods=['POST'])
+def save_topics_config():
+    """Save topics configuration to JSON file"""
+    try:
+        data = request.json
+        # Validate structure
+        if 'categories' not in data:
+            return jsonify({'error': 'Missing categories field'}), 400
+        
+        # Backup existing file
+        import shutil
+        try:
+            shutil.copy('topics.json', 'topics.json.backup')
+        except:
+            pass  # No backup if file doesn't exist
+        
+        # Write new data
+        with open('topics.json', 'w') as f:
+            json.dump(data, f, indent=2)
+        
+        return jsonify({'message': 'Topics configuration saved successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/debug/check-key', methods=['GET'])
 def check_api_key():
@@ -135,14 +176,14 @@ def create_interview():
     interview_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    return jsonify({'id': interview_id, 'message': 'Interview created successfully'}), 201
+    return jsonify({'id': interview_id, 'message': 'Study material created successfully'}), 201
 
 @app.route('/api/interviews/<int:interview_id>', methods=['GET'])
 def get_interview(interview_id):
     conn = get_db()
     interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
     if not interview:
-        return jsonify({'error': 'Interview not found'}), 404
+        return jsonify({'error': 'Study material not found'}), 404
     
     topics = conn.execute('SELECT * FROM topics WHERE interview_id = ? ORDER BY COALESCE(category_name, ""), priority DESC, topic_name ASC', 
                          (interview_id,)).fetchall()
@@ -166,7 +207,7 @@ def delete_interview(interview_id):
     # Check if interview exists
     interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
     if not interview:
-        return jsonify({'error': 'Interview not found'}), 404
+        return jsonify({'error': 'Study material not found'}), 404
     
     # Delete all related topics first (due to foreign key)
     conn.execute('DELETE FROM topics WHERE interview_id = ?', (interview_id,))
@@ -176,7 +217,7 @@ def delete_interview(interview_id):
     conn.execute('DELETE FROM interviews WHERE id = ?', (interview_id,))
     conn.commit()
     conn.close()
-    return jsonify({'message': 'Interview deleted successfully'})
+    return jsonify({'message': 'Study material deleted successfully'})
 
 @app.route('/api/interviews/<int:interview_id>/topics', methods=['POST'])
 def add_topic(interview_id):
@@ -186,7 +227,7 @@ def add_topic(interview_id):
     conn = get_db()
     interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
     if not interview:
-        return jsonify({'error': 'Interview not found'}), 404
+        return jsonify({'error': 'Study material not found'}), 404
     
     # If topic name is blank, generate common topics for the position
     if not topic_name:
@@ -260,7 +301,7 @@ def generate_ai_guidance(topic_id):
     
     interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (dict(topic)['interview_id'],)).fetchone()
     if not interview:
-        return jsonify({'error': 'Interview not found'}), 404
+        return jsonify({'error': 'Study material not found'}), 404
     
     conn.close()
     
@@ -344,6 +385,68 @@ def _save_ai_guidance(topic_id, ai_guidance):
     conn.commit()
     conn.close()
 
+def load_default_topics():
+    """Load default topics from topics.json file - supports recursive nesting"""
+    def process_node(node, path_parts):
+        """Recursively process a category/subcategory node"""
+        topics_list = []
+        node_name = node.get('name', '')
+        current_path = path_parts + [node_name] if node_name else path_parts
+        
+        # Check if this node has nested subcategories
+        if 'subcategories' in node and node.get('subcategories'):
+            # Process each subcategory recursively
+            for subcat in node.get('subcategories', []):
+                topics_list.extend(process_node(subcat, current_path))
+        else:
+            # This node has direct topics
+            for i, topic_name in enumerate(node.get('topics', [])):
+                full_category = ' > '.join(current_path) if current_path else None
+                topics_list.append({
+                    'name': topic_name,
+                    'category': full_category,
+                    'priority': 'high' if i < 2 else 'medium'
+                })
+        
+        return topics_list
+    
+    try:
+        with open('topics.json', 'r') as f:
+            data = json.load(f)
+            topics = []
+            
+            # Process each category
+            for category in data.get('categories', []):
+                category_name = category.get('name', '')
+                
+                # Check if category has subcategories (new structure)
+                if 'subcategories' in category and category.get('subcategories'):
+                    # Process recursively
+                    topics.extend(process_node(category, []))
+                elif 'topics' in category:
+                    # Legacy structure: topics directly under category
+                    for i, topic_name in enumerate(category.get('topics', [])):
+                        topics.append({
+                            'name': topic_name,
+                            'category': category_name,
+                            'priority': 'high' if i < 2 else 'medium'
+                        })
+            
+            # Add uncategorized topics
+            for topic_name in data.get('uncategorized_topics', []):
+                topics.append({
+                    'name': topic_name,
+                    'category': None,
+                    'priority': 'medium'
+                })
+            return topics
+    except FileNotFoundError:
+        # Fallback if file doesn't exist
+        return []
+    except json.JSONDecodeError:
+        # Fallback if JSON is invalid
+        return []
+
 def generate_common_topics(position):
     """Generate common interview topics for a given position using AI"""
     # Default granular technical topics based on common data science interview requirements
@@ -374,11 +477,17 @@ def generate_common_topics(position):
             {'name': 'Model Evaluation Metrics', 'priority': 'high', 'category': 'Machine Learning'}
     ]
     
+    # First, try to load from topics.json
+    json_topics = load_default_topics()
+    
     groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
     
     if not groq_key or not Groq:
-        # Fallback: return hierarchical topics if AI is not available
-        # Convert default_topics to hierarchical format
+        # Fallback: return topics from JSON file, or hardcoded if JSON is empty
+        if json_topics:
+            return json_topics[:20]  # Return up to 20 topics from JSON
+        
+        # Fallback to hardcoded topics if JSON is empty
         topics_by_category = {}
         for topic in default_topics:
             category = topic.get('category', 'Other')
@@ -496,27 +605,15 @@ Provide 5-7 main categories with 2-4 subtopics each. Focus on technical skills t
         
         # Ensure we have at least some topics
         if not topics:
-            # Fallback: convert default topics to hierarchical format
-            default_categories = {
-                'Core Programming': ['Python Data Structures (lists, dicts, sets, tuples)', 'Python Control Flow & Functions', 'List & Dict Comprehensions', 'Python OOP (classes, __init__, methods)'],
-                'Data Manipulation & Analysis': [
-                    'groupby, agg, transform',
-                    'Merging/joining data',
-                    'Handling missing data',
-                    'Datetime operations',
-                    'Vectorization vs loops',
-                    'Performance awareness (when pandas breaks)'
-                ],
-                'SQL': ['SQL SELECT, WHERE, JOIN', 'SQL GROUP BY, HAVING', 'SQL Window Functions', 'SQL Subqueries & CTEs'],
-                'Statistics': ['Descriptive Statistics', 'Probability Distributions', 'Hypothesis Testing & p-values', 'A/B Testing'],
-                'Machine Learning': ['Linear & Logistic Regression', 'Decision Trees', 'Random Forests', 'Gradient Boosting (XGBoost/LightGBM)', 'Model Evaluation Metrics']
-            }
-            for category, subtopics in list(default_categories.items())[:5]:
-                for i, subtopic in enumerate(subtopics):
+            # Use topics from JSON file, or fallback to hardcoded
+            topics = load_default_topics()
+            if not topics:
+                # Fallback to hardcoded topics
+                for topic in default_topics:
                     topics.append({
-                        'name': subtopic,
-                        'category': category,
-                        'priority': 'high' if i < 2 else 'medium'
+                        'name': topic['name'],
+                        'category': topic.get('category'),
+                        'priority': topic.get('priority', 'medium')
                     })
         
         return topics
@@ -530,7 +627,7 @@ def get_study_plan(interview_id):
     conn = get_db()
     interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
     if not interview:
-        return jsonify({'error': 'Interview not found'}), 404
+        return jsonify({'error': 'Study material not found'}), 404
     
     topics = conn.execute('SELECT * FROM topics WHERE interview_id = ? ORDER BY COALESCE(category_name, ""), priority DESC, topic_name ASC', 
                          (interview_id,)).fetchall()

@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - My Study Guide</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #fafafa;
+            --surface: #ffffff;
+            --text: #1a1a1a;
+            --text-light: #666666;
+            --border: #e0e0e0;
+            --accent: #ff8c42;
+            --accent-light: #ffa366;
+            --success: #10b981;
+            --danger: #ef4444;
+            --bg-hover: #f5f5f5;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--text);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-light);
+        }
+
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.8125rem;
+        }
+
+        .card {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .category-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .category-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .subcategory-section {
+            margin-top: 20px;
+            margin-bottom: 20px;
+            padding: 16px;
+            background: var(--bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .subcategory-content.hidden {
+            display: none !important;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .subcategory-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .toggle-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1.2rem;
+            color: var(--text-light);
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+
+        .toggle-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text);
+        }
+
+        .subcategory-content {
+            margin-top: 12px;
+        }
+
+        .subcategory-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .topics-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .topic-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: var(--bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .topic-item:hover {
+            background: var(--bg-hover);
+        }
+
+        .topic-name {
+            flex: 1;
+            font-size: 0.9375rem;
+            min-width: 300px;
+        }
+
+        .topic-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .input-group {
+            margin-bottom: 16px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--text);
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.9375rem;
+            font-family: inherit;
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .add-category-form, .add-topic-form {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .form-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .form-row .input-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 0.875rem;
+        }
+
+        .message-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .message-error {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-light);
+            text-decoration: none;
+            font-size: 0.875rem;
+            margin-bottom: 24px;
+        }
+
+        .back-link:hover {
+            color: var(--text);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 24px 16px;
+            }
+
+            .category-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .form-row {
+                flex-direction: column;
+            }
+
+            .topic-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .topic-actions {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Study Guide</a>
+        
+        <div class="header">
+            <h1>Topics Admin</h1>
+            <button class="btn btn-primary" onclick="saveAll()">💾 Save All Changes</button>
+        </div>
+
+        <div id="message"></div>
+
+        <div id="categories-container"></div>
+
+        <div class="card">
+            <h2 style="margin-top: 0; margin-bottom: 16px;">Add New Category</h2>
+            <div class="add-category-form">
+                <div class="form-row">
+                    <div class="input-group">
+                        <label for="new-category-name">Category Name</label>
+                        <input type="text" id="new-category-name" placeholder="e.g., Data Structures">
+                    </div>
+                    <button class="btn btn-primary" onclick="addCategory()">Add Category</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let topicsData = { categories: [], uncategorized_topics: [] };
+
+        async function loadTopics() {
+            try {
+                const response = await fetch('/api/topics');
+                topicsData = await response.json();
+                renderCategories();
+            } catch (error) {
+                showMessage('Error loading topics: ' + error.message, 'error');
+            }
+        }
+
+        // Recursive function to render a node (category/subcategory) at any depth
+        function renderNode(node, path, depth = 0) {
+            const nodeIndex = path[path.length - 1];
+            const pathString = path.join('-');
+            const hasSubcategories = node.subcategories && node.subcategories.length > 0;
+            const hasDirectTopics = node.topics && node.topics.length > 0;
+            
+            let html = '';
+            const indent = depth * 20;
+            const fontSize = Math.max(0.875, 1 - (depth * 0.05));
+            
+            // Render subcategories recursively
+            let subcategoriesHtml = '';
+            if (hasSubcategories) {
+                node.subcategories.forEach((subcat, subcatIndex) => {
+                    const newPath = [...path, subcatIndex];
+                    subcategoriesHtml += renderNode(subcat, newPath, depth + 1);
+                });
+            }
+            
+            // Render direct topics
+            let topicsHtml = '';
+            if (hasDirectTopics) {
+                node.topics.forEach((topic, topicIndex) => {
+                    const topicPathString = [...path, 'topic', topicIndex].join('-');
+                    topicsHtml += `
+                        <li class="topic-item">
+                            <input type="text" class="topic-name" value="${topic}" 
+                                   onchange="updateTopicByPath([${path.join(',')}], ${topicIndex}, this.value)"
+                                   style="border: none; background: transparent; flex: 1; padding: 0;">
+                            <div class="topic-actions">
+                                <button class="btn btn-danger btn-small" onclick="deleteTopicByPath([${path.join(',')}], ${topicIndex})">×</button>
+                            </div>
+                        </li>
+                    `;
+                });
+            }
+            
+            // Build the node HTML
+            const sectionId = `section-${pathString}`;
+            html += `
+                <div class="subcategory-section" style="margin-left: ${indent}px; ${depth > 0 ? 'border-left: 2px solid var(--border); padding-left: 16px;' : ''}">
+                    <div class="subcategory-header">
+                        <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                            <button class="toggle-btn" onclick="toggleSection('${sectionId}')" title="Toggle section">▼</button>
+                            <input type="text" class="subcategory-title" value="${node.name}" 
+                                   onchange="updateNodeNameByPath([${path.join(',')}], this.value)"
+                                   style="border: none; background: transparent; font-size: ${fontSize}rem; font-weight: 600; padding: 0; width: 100%; max-width: ${600 - depth * 50}px;">
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-small" onclick="addSubcategoryByPath([${path.join(',')}])">+ Add Subcategory</button>
+                            <button class="btn btn-secondary btn-small" onclick="addTopicByPath([${path.join(',')}])">+ Add Topic</button>
+                            ${depth > 0 ? `<button class="btn btn-danger btn-small" onclick="deleteNodeByPath([${path.join(',')}])">Delete</button>` : ''}
+                        </div>
+                    </div>
+                    <div class="subcategory-content" id="${sectionId}">
+                        ${subcategoriesHtml}
+                        ${hasDirectTopics ? `<ul class="topics-list">${topicsHtml}</ul>` : ''}
+                        ${hasDirectTopics ? `
+                        <div class="add-topic-form">
+                            <div class="form-row">
+                                <div class="input-group">
+                                    <input type="text" id="new-topic-${pathString}" placeholder="Add new topic..." 
+                                           onkeypress="if(event.key==='Enter') addTopicByPath([${path.join(',')}])">
+                                </div>
+                                <button class="btn btn-secondary btn-small" onclick="addTopicByPath([${path.join(',')}])">Add Topic</button>
+                            </div>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            return html;
+        }
+
+        function renderCategories() {
+            const container = document.getElementById('categories-container');
+            container.innerHTML = '';
+
+            topicsData.categories.forEach((category, catIndex) => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                
+                const hasSubcategories = category.subcategories && category.subcategories.length > 0;
+                const hasDirectTopics = category.topics && category.topics.length > 0;
+                
+                let subcategoriesContainer = '';
+                if (hasSubcategories) {
+                    category.subcategories.forEach((subcat, subcatIndex) => {
+                        subcategoriesContainer += renderNode(subcat, [catIndex, subcatIndex], 0);
+                    });
+                }
+                
+                const categorySectionId = `category-section-${catIndex}`;
+                card.innerHTML = `
+                    <div class="category-header">
+                        <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                            <button class="toggle-btn" onclick="toggleSection('${categorySectionId}')" title="Toggle category">▼</button>
+                            <input type="text" class="category-title" value="${category.name}" 
+                                   onchange="updateCategoryName(${catIndex}, this.value)"
+                                   style="border: none; background: transparent; font-size: 1.25rem; font-weight: 600; padding: 0; width: 100%; max-width: 800px;">
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-small" onclick="addSubcategory(${catIndex})">+ Add Subcategory</button>
+                            <button class="btn btn-danger btn-small" onclick="deleteCategory(${catIndex})">Delete Category</button>
+                        </div>
+                    </div>
+                    <div class="subcategory-content" id="${categorySectionId}">
+                        ${subcategoriesContainer}
+                    </div>
+                    ${hasDirectTopics ? `
+                        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                            <p style="font-size: 0.875rem; color: var(--text-light); margin-bottom: 12px;">Legacy topics (consider moving to subcategories):</p>
+                            <ul class="topics-list" id="topics-${catIndex}"></ul>
+                        </div>
+                    ` : ''}
+                `;
+                container.appendChild(card);
+                
+                // Render legacy topics if they exist
+                if (hasDirectTopics) {
+                    const topicsList = document.getElementById(`topics-${catIndex}`);
+                    category.topics.forEach((topic, topicIndex) => {
+                        const li = document.createElement('li');
+                        li.className = 'topic-item';
+                        li.innerHTML = `
+                            <input type="text" class="topic-name" value="${topic}" 
+                                   onchange="updateLegacyTopic(${catIndex}, ${topicIndex}, this.value)"
+                                   style="border: none; background: transparent; flex: 1; padding: 0;">
+                            <div class="topic-actions">
+                                <button class="btn btn-danger btn-small" onclick="deleteLegacyTopic(${catIndex}, ${topicIndex})">×</button>
+                            </div>
+                        `;
+                        topicsList.appendChild(li);
+                    });
+                }
+            });
+        }
+
+        function addCategory() {
+            const nameInput = document.getElementById('new-category-name');
+            const name = nameInput.value.trim();
+            if (!name) {
+                showMessage('Please enter a category name', 'error');
+                return;
+            }
+            topicsData.categories.push({ name, subcategories: [] });
+            nameInput.value = '';
+            renderCategories();
+            showMessage('Category added. Don\'t forget to save!', 'success');
+        }
+
+        function updateCategoryName(catIndex, newName) {
+            topicsData.categories[catIndex].name = newName.trim();
+        }
+
+        function deleteCategory(catIndex) {
+            if (confirm(`Delete category "${topicsData.categories[catIndex].name}" and all its subcategories and topics?`)) {
+                topicsData.categories.splice(catIndex, 1);
+                renderCategories();
+                showMessage('Category deleted. Don\'t forget to save!', 'success');
+            }
+        }
+
+        function addSubcategory(catIndex) {
+            const name = prompt('Enter subcategory name:');
+            if (!name || !name.trim()) {
+                return;
+            }
+            if (!topicsData.categories[catIndex].subcategories) {
+                topicsData.categories[catIndex].subcategories = [];
+            }
+            topicsData.categories[catIndex].subcategories.push({ name: name.trim(), topics: [] });
+            renderCategories();
+            showMessage('Subcategory added. Don\'t forget to save!', 'success');
+        }
+
+        // Helper function to get node by path
+        function getNodeByPath(path) {
+            let node = topicsData.categories[path[0]];
+            for (let i = 1; i < path.length; i++) {
+                if (!node.subcategories) node.subcategories = [];
+                node = node.subcategories[path[i]];
+            }
+            return node;
+        }
+
+        // Helper function to get parent node by path
+        function getParentNodeByPath(path) {
+            if (path.length <= 1) return topicsData.categories;
+            let node = topicsData.categories[path[0]];
+            for (let i = 1; i < path.length - 1; i++) {
+                if (!node.subcategories) node.subcategories = [];
+                node = node.subcategories[path[i]];
+            }
+            return node.subcategories;
+        }
+
+        function addSubcategoryByPath(path) {
+            const name = prompt('Enter subcategory name:');
+            if (!name || !name.trim()) {
+                return;
+            }
+            const node = getNodeByPath(path);
+            if (!node.subcategories) node.subcategories = [];
+            node.subcategories.push({ name: name.trim(), topics: [] });
+            renderCategories();
+            showMessage('Subcategory added. Don\'t forget to save!', 'success');
+        }
+
+        function addTopicByPath(path) {
+            const pathString = path.join('-');
+            const input = document.getElementById(`new-topic-${pathString}`);
+            const topic = input ? input.value.trim() : '';
+            if (!topic) {
+                showMessage('Please enter a topic name', 'error');
+                return;
+            }
+            const node = getNodeByPath(path);
+            if (!node.topics) node.topics = [];
+            node.topics.push(topic);
+            if (input) input.value = '';
+            renderCategories();
+            showMessage('Topic added. Don\'t forget to save!', 'success');
+        }
+
+        function updateNodeNameByPath(path, newName) {
+            const node = getNodeByPath(path);
+            node.name = newName.trim();
+        }
+
+        function updateTopicByPath(path, topicIndex, newValue) {
+            const node = getNodeByPath(path);
+            if (!node.topics) node.topics = [];
+            node.topics[topicIndex] = newValue.trim();
+        }
+
+        function deleteNodeByPath(path) {
+            const node = getNodeByPath(path);
+            if (confirm(`Delete "${node.name}" and all its subcategories and topics?`)) {
+                const parent = getParentNodeByPath(path);
+                parent.splice(path[path.length - 1], 1);
+                renderCategories();
+                showMessage('Deleted. Don\'t forget to save!', 'success');
+            }
+        }
+
+        function deleteTopicByPath(path, topicIndex) {
+            const node = getNodeByPath(path);
+            const topic = node.topics[topicIndex];
+            if (confirm(`Delete topic "${topic}"?`)) {
+                node.topics.splice(topicIndex, 1);
+                renderCategories();
+                showMessage('Topic deleted. Don\'t forget to save!', 'success');
+            }
+        }
+
+        function toggleSection(sectionId) {
+            const contentSection = document.getElementById(sectionId);
+            if (!contentSection) return;
+            
+            // Find the toggle button - it could be in a category-header or subcategory-header
+            const card = contentSection.closest('.card, .subcategory-section');
+            if (!card) return;
+            
+            // Toggle the collapsed class on the content section
+            contentSection.classList.toggle('hidden');
+            
+            // Find and update the toggle button
+            const toggleBtn = card.querySelector('.toggle-btn');
+            if (toggleBtn) {
+                toggleBtn.textContent = contentSection.classList.contains('hidden') ? '▶' : '▼';
+            }
+        }
+
+        function updateSubcategoryName(catIndex, subcatIndex, newName) {
+            topicsData.categories[catIndex].subcategories[subcatIndex].name = newName.trim();
+        }
+
+        function deleteSubcategory(catIndex, subcatIndex) {
+            const subcat = topicsData.categories[catIndex].subcategories[subcatIndex];
+            if (confirm(`Delete subcategory "${subcat.name}" and all its topics?`)) {
+                topicsData.categories[catIndex].subcategories.splice(subcatIndex, 1);
+                renderCategories();
+                showMessage('Subcategory deleted. Don\'t forget to save!', 'success');
+            }
+        }
+
+        function addTopic(catIndex, subcatIndex) {
+            const input = document.getElementById(`new-topic-${catIndex}-${subcatIndex}`);
+            const topic = input.value.trim();
+            if (!topic) {
+                showMessage('Please enter a topic name', 'error');
+                return;
+            }
+            topicsData.categories[catIndex].subcategories[subcatIndex].topics.push(topic);
+            input.value = '';
+            renderCategories();
+            showMessage('Topic added. Don\'t forget to save!', 'success');
+        }
+
+        function updateTopic(catIndex, subcatIndex, topicIndex, newValue) {
+            topicsData.categories[catIndex].subcategories[subcatIndex].topics[topicIndex] = newValue.trim();
+        }
+
+        function deleteTopic(catIndex, subcatIndex, topicIndex) {
+            const topic = topicsData.categories[catIndex].subcategories[subcatIndex].topics[topicIndex];
+            if (confirm(`Delete topic "${topic}"?`)) {
+                topicsData.categories[catIndex].subcategories[subcatIndex].topics.splice(topicIndex, 1);
+                renderCategories();
+                showMessage('Topic deleted. Don\'t forget to save!', 'success');
+            }
+        }
+
+        // Legacy topic functions (for categories with direct topics)
+        function updateLegacyTopic(catIndex, topicIndex, newValue) {
+            if (!topicsData.categories[catIndex].topics) {
+                topicsData.categories[catIndex].topics = [];
+            }
+            topicsData.categories[catIndex].topics[topicIndex] = newValue.trim();
+        }
+
+        function deleteLegacyTopic(catIndex, topicIndex) {
+            const topic = topicsData.categories[catIndex].topics[topicIndex];
+            if (confirm(`Delete topic "${topic}"?`)) {
+                topicsData.categories[catIndex].topics.splice(topicIndex, 1);
+                renderCategories();
+                showMessage('Topic deleted. Don\'t forget to save!', 'success');
+            }
+        }
+
+        async function saveAll() {
+            try {
+                const response = await fetch('/api/topics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(topicsData)
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('✅ Topics saved successfully!', 'success');
+                } else {
+                    showMessage('Error: ' + (data.error || 'Failed to save'), 'error');
+                }
+            } catch (error) {
+                showMessage('Error saving topics: ' + error.message, 'error');
+            }
+        }
+
+        function showMessage(text, type) {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.className = `message message-${type}`;
+            messageEl.style.display = 'block';
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+            }, 5000);
+        }
+
+        // Load topics on page load
+        loadTopics();
+    </script>
+</body>
+</html>
+
