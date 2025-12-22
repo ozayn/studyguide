@@ -360,10 +360,17 @@
 
         .topic-header {
             display: flex;
-            justify-content: space-between;
-            align-items: start;
-            margin-bottom: 12px;
+            flex-direction: column;
             gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .topic-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+            align-items: flex-start;
+            order: -1; /* Move buttons to top */
         }
 
         .topic-content {
@@ -386,16 +393,108 @@
             align-items: flex-start;
         }
 
-        .ai-guidance {
-            margin-top: 16px;
+        /* Modal styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
-            background: linear-gradient(to right, rgba(255, 140, 66, 0.03), var(--bg));
-            border-radius: 12px;
-            font-size: 0.875rem;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal-card {
+            background: var(--bg);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            position: relative;
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            font-size: 1.5rem;
+            color: var(--text-light);
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: var(--bg-hover);
+            color: var(--text);
+        }
+
+        .ai-guidance {
+            font-size: 0.9375rem;
             line-height: 1.8;
             color: var(--text);
-            border-left: 3px solid var(--accent);
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .ai-guidance p {
+            margin-bottom: 12px;
+        }
+
+        .ai-guidance ul, .ai-guidance ol {
+            margin: 12px 0;
+            padding-left: 24px;
+        }
+
+        .ai-guidance li {
+            margin-bottom: 8px;
+        }
+
+        .ai-guidance strong {
+            font-weight: 600;
+            color: var(--text);
         }
 
         .ai-guidance.hidden {
@@ -475,19 +574,20 @@
 
         .topic-tags {
             display: flex;
-            gap: 8px;
+            gap: 6px;
             align-items: center;
             flex-wrap: wrap;
         }
 
         .tag {
             display: inline-block;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.6875rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.625rem;
             font-weight: 500;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.03em;
+            line-height: 1.3;
         }
 
         .tag-priority-high {
@@ -520,11 +620,7 @@
             color: var(--pending);
         }
 
-        .topic-actions {
-            display: flex;
-            gap: 8px;
-            flex-shrink: 0;
-        }
+        /* .topic-actions is defined above with order: -1 */
 
         .section-title {
             font-size: 0.75rem;
@@ -723,6 +819,7 @@
                 justify-content: flex-start;
                 flex-wrap: wrap;
                 gap: 8px;
+                order: -1; /* Keep buttons on top on mobile too */
             }
 
             .topic-name {
@@ -1213,7 +1310,7 @@
                                         </div>
                                         <div class="topic-actions">
                                             <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
-                                                ${topic.ai_guidance ? '🔄 Regenerate' : '✨ Generate'}
+                                                ${topic.ai_guidance ? '🔄' : '✨'}
                                             </button>
                                             <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
                                                 ${topic.status === 'completed' ? 'Undo' : 'Done'}
@@ -1222,14 +1319,9 @@
                                         </div>
                                     </div>
                                     ${topic.ai_guidance ? `
-                                        <div style="margin-top: 12px;">
-                                            <button class="ai-guidance-toggle" onclick="toggleAIGuidance(${topic.id})" id="toggle-ai-${topic.id}">
-                                                <span>▼</span> Show Guidance
-                                            </button>
-                                            <div class="ai-guidance hidden" id="ai-guidance-${topic.id}">
-                                                ${formatAIGuidance(topic.ai_guidance)}
-                                            </div>
-                                        </div>
+                                        <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
+                                            📖 View Guidance
+                                        </button>
                                     ` : ''}
                                 </div>
                             `;
@@ -1259,7 +1351,7 @@
                                         </div>
                                         <div class="topic-actions">
                                             <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
-                                                ${topic.ai_guidance ? '🔄 Regenerate' : '✨ Generate'}
+                                                ${topic.ai_guidance ? '🔄' : '✨'}
                                             </button>
                                             <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
                                                 ${topic.status === 'completed' ? 'Undo' : 'Done'}
@@ -1268,14 +1360,9 @@
                                         </div>
                                     </div>
                                     ${topic.ai_guidance ? `
-                                        <div style="margin-top: 12px;">
-                                            <button class="ai-guidance-toggle" onclick="toggleAIGuidance(${topic.id})" id="toggle-ai-${topic.id}">
-                                                <span>▼</span> Show Guidance
-                                            </button>
-                                            <div class="ai-guidance hidden" id="ai-guidance-${topic.id}">
-                                                ${formatAIGuidance(topic.ai_guidance)}
-                                            </div>
-                                        </div>
+                                        <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
+                                            📖 View Guidance
+                                        </button>
                                     ` : ''}
                                 </div>
                             `;
@@ -1411,35 +1498,21 @@
 
         async function generateAIGuidance(topicId) {
             const btn = document.getElementById(`ai-btn-${topicId}`);
+            const modal = document.getElementById('guidance-modal');
+            const modalContent = document.getElementById('modal-guidance-content');
+            const modalTitle = document.getElementById('modal-title');
             
-            // Show loading state
-            let guidanceEl = document.getElementById(`ai-guidance-${topicId}`);
-            let toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
+            // Get topic name for modal title
+            const topicItem = btn.closest('.topic-item');
+            const topicName = topicItem ? topicItem.querySelector('.topic-name')?.textContent || 'Topic' : 'Topic';
             
-            if (guidanceEl) {
-                guidanceEl.classList.remove('hidden');
-                guidanceEl.innerHTML = '<span class="ai-guidance-loading">Generating guidance...</span>';
-                if (toggleBtn) {
-                    toggleBtn.innerHTML = '<span>▲</span> Hide Guidance';
-                }
-            } else {
-                // Create guidance element if it doesn't exist
-                const topicItem = btn.closest('.topic-item');
-                const guidanceContainer = document.createElement('div');
-                guidanceContainer.style.marginTop = '12px';
-                guidanceContainer.innerHTML = `
-                    <button class="ai-guidance-toggle" onclick="toggleAIGuidance(${topicId})" id="toggle-ai-${topicId}">
-                        <span>▲</span> Hide Guidance
-                    </button>
-                    <div class="ai-guidance" id="ai-guidance-${topicId}">
-                        <span class="ai-guidance-loading">Generating guidance...</span>
-                    </div>
-                `;
-                topicItem.appendChild(guidanceContainer);
-            }
+            // Show modal with loading state
+            modalTitle.textContent = topicName;
+            modalContent.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-light);">⏳ Generating guidance...</div>';
+            modal.classList.add('active');
             
             btn.disabled = true;
-            btn.textContent = 'Generating...';
+            btn.textContent = '⏳';
 
             try {
                 const response = await fetch(`/api/topics/${topicId}/ai-guidance`, {
@@ -1449,63 +1522,59 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Update the guidance element
-                    let guidanceElement = document.getElementById(`ai-guidance-${topicId}`);
-                    let toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
-                    
-                    if (guidanceElement) {
-                        guidanceElement.innerHTML = formatAIGuidance(data.ai_guidance);
-                        guidanceElement.classList.remove('hidden');
-                        if (toggleBtn) {
-                            toggleBtn.innerHTML = '<span>▲</span> Hide Guidance';
-                        }
-                    }
-                    
-                    btn.textContent = '🔄 Regenerate';
+                    // Update modal content
+                    modalContent.innerHTML = formatAIGuidance(data.ai_guidance);
+                    btn.textContent = '🔄';
                     // Reload interview to get updated topic data
                     loadInterviewDetail(currentInterviewId);
                 } else {
-                    alert(data.error || 'Failed to generate AI guidance');
-                    const guidanceElement = document.getElementById(`ai-guidance-${topicId}`);
-                    const toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
-                    if (guidanceElement) {
-                        guidanceElement.remove();
-                    }
-                    if (toggleBtn) {
-                        toggleBtn.remove();
-                    }
+                    modalContent.innerHTML = `<div style="color: var(--accent); padding: 20px; text-align: center;">${data.error || 'Failed to generate AI guidance'}</div>`;
+                    btn.textContent = '✨';
+                    btn.disabled = false;
                 }
             } catch (error) {
                 console.error('Error generating AI guidance:', error);
-                alert('Failed to generate AI guidance. Make sure GROQ_API_KEY or GOOGLE_API_KEY is set.');
-                const guidanceElement = document.getElementById(`ai-guidance-${topicId}`);
-                const toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
-                if (guidanceElement) {
-                    guidanceElement.remove();
-                }
-                if (toggleBtn) {
-                    toggleBtn.remove();
-                }
-            } finally {
+                modalContent.innerHTML = '<div style="color: var(--accent); padding: 20px; text-align: center;">Failed to generate AI guidance. Please try again.</div>';
+                btn.textContent = '✨';
                 btn.disabled = false;
             }
         }
 
-        function toggleAIGuidance(topicId) {
-            const guidanceEl = document.getElementById(`ai-guidance-${topicId}`);
-            const toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
-            
-            if (!guidanceEl || !toggleBtn) return;
-            
-            const isHidden = guidanceEl.classList.contains('hidden');
-            
-            if (isHidden) {
-                guidanceEl.classList.remove('hidden');
-                toggleBtn.innerHTML = '<span>▲</span> Hide Guidance';
-            } else {
-                guidanceEl.classList.add('hidden');
-                toggleBtn.innerHTML = '<span>▼</span> Show Guidance';
+        function closeGuidanceModal(event) {
+            // If event is provided and it's the overlay click, close
+            // If event is not provided (button click), close anyway
+            if (!event || event.target.classList.contains('modal-overlay')) {
+                const modal = document.getElementById('guidance-modal');
+                modal.classList.remove('active');
             }
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeGuidanceModal();
+            }
+        });
+
+        function showExistingGuidance(topicName, topicId) {
+            const modal = document.getElementById('guidance-modal');
+            const modalContent = document.getElementById('modal-guidance-content');
+            const modalTitle = document.getElementById('modal-title');
+            
+            // Fetch the topic to get the guidance
+            fetch(`/api/interviews/${currentInterviewId}`)
+                .then(response => response.json())
+                .then(interview => {
+                    const topic = interview.topics.find(t => t.id === topicId);
+                    if (topic && topic.ai_guidance) {
+                        modalTitle.textContent = topicName;
+                        modalContent.innerHTML = formatAIGuidance(topic.ai_guidance);
+                        modal.classList.add('active');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading guidance:', error);
+                });
         }
 
         async function generateStudyPlan() {
@@ -1588,5 +1657,18 @@
             }
         }
     </script>
+
+    <!-- AI Guidance Modal -->
+    <div class="modal-overlay" id="guidance-modal" onclick="closeGuidanceModal(event)">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title" id="modal-title">AI Study Guidance</div>
+                <button class="modal-close" onclick="closeGuidanceModal()" aria-label="Close">×</button>
+            </div>
+            <div class="ai-guidance" id="modal-guidance-content">
+                <!-- Guidance content will be inserted here -->
+            </div>
+        </div>
+    </div>
 </body>
 </html>

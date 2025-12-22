@@ -28,18 +28,24 @@ pip install -r requirements.txt
    **Option A: Groq (Recommended - Fast & Free)**
    - Get a free API key from [Groq Console](https://console.groq.com)
    - Generous free tier, very fast responses
-   - Set it as an environment variable:
-   ```bash
-   export GROQ_API_KEY='your-groq-api-key-here'
-   ```
    
    **Option B: Google Gemini (Also Free)**
    - Get a free API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
    - 60 requests per minute free tier
-   - Set it as an environment variable:
+   
+   **API keys are stored in `.env` file** (this file is git-ignored for security).
+   
+   Create a `.env` file in the project root:
    ```bash
-   export GOOGLE_API_KEY='your-google-api-key-here'
+   # .env file
+   GROQ_API_KEY=your-groq-api-key-here
+   # OR
+   GOOGLE_API_KEY=your-google-api-key-here
    ```
+   
+   The app will automatically load these variables from `.env` using `python-dotenv`.
+   
+   **Note:** Your current Groq API key is already saved in the `.env` file - no need to set it up again!
    
    The AI guidance feature will automatically use whichever API key is available (Groq is tried first)
 
