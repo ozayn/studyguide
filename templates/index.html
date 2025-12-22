@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interview Prep</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #fafafa;
+            --surface: #ffffff;
+            --text: #1a1a1a;
+            --text-light: #6b6b6b;
+            --accent: #ff8c42;
+            --accent-light: #ffa366;
+            --border: #e8e8e8;
+            --success: #4ade80;
+            --pending: #fbbf24;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            overflow-x: hidden;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 60px 24px;
+        }
+
+        .header {
+            margin-bottom: 64px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 300;
+            letter-spacing: -0.02em;
+            color: var(--text);
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 0.875rem;
+            color: var(--text-light);
+            font-weight: 400;
+        }
+
+        .card {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 32px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card:hover {
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+        }
+
+        .form-minimal {
+            display: grid;
+            gap: 20px;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        input[type="text"],
+        input[type="date"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 12px 0;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9375rem;
+            font-family: inherit;
+            background: transparent;
+            color: var(--text);
+            transition: all 0.2s;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-bottom-color: var(--accent);
+        }
+
+        textarea {
+            resize: none;
+            min-height: 80px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        textarea:focus {
+            border-color: var(--accent);
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background: var(--accent);
+            color: white;
+            letter-spacing: -0.01em;
+        }
+
+        .btn:hover {
+            background: var(--accent-light);
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-light);
+            border: 1px solid var(--border);
+        }
+
+        .btn-ghost:hover {
+            background: var(--bg);
+            border-color: var(--text-light);
+        }
+
+        .btn-mini {
+            padding: 6px 12px;
+            font-size: 0.75rem;
+        }
+
+        .interview-grid {
+            display: grid;
+            gap: 16px;
+        }
+
+        .interview-card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .interview-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+        }
+
+        .interview-card-actions {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .interview-delete-btn {
+            padding: 0;
+            border: none;
+            border-radius: 6px;
+            font-size: 1.25rem;
+            font-weight: 400;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(220, 38, 38, 0.15);
+            color: #dc2626;
+            opacity: 1;
+            line-height: 1;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        .interview-delete-btn:hover {
+            background: rgba(220, 38, 38, 0.25);
+            color: #b91c1c;
+            transform: scale(1.1);
+        }
+
+        .interview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 16px;
+            padding-right: 40px;
+        }
+
+        .interview-title {
+            font-size: 1.125rem;
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: 4px;
+            letter-spacing: -0.01em;
+        }
+
+        .interview-company {
+            font-size: 0.8125rem;
+            color: var(--text-light);
+        }
+
+        .interview-date {
+            font-size: 0.8125rem;
+            color: var(--accent);
+            font-weight: 500;
+            margin-right: 0;
+        }
+
+        .interview-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 0.75rem;
+            color: var(--text-light);
+        }
+
+        .topic-list {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 32px;
+        }
+
+        @media (max-width: 768px) {
+            .topic-list {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .topic-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 12px;
+        }
+
+        .topic-tab {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+            background: var(--bg);
+            color: var(--text);
+            letter-spacing: -0.01em;
+        }
+
+        .topic-tab:hover {
+            background: var(--bg-hover);
+            transform: translateY(-1px);
+        }
+
+        .topic-tab.active {
+            border-color: currentColor;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .topic-category-content {
+            display: none;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .topic-category-content.active {
+            display: grid;
+        }
+
+        @media (max-width: 768px) {
+            .topic-category-content.active {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .topic-item {
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .topic-item.topic-subtopic {
+            border-radius: 12px;
+            margin-top: 16px;
+        }
+
+        .topic-item.topic-subtopic:first-child {
+            margin-top: 0;
+        }
+
+        .topic-item:hover {
+            border-color: var(--accent);
+            background: var(--bg);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .topic-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+            gap: 12px;
+        }
+
+        .topic-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .topic-name {
+            font-size: 1rem;
+            font-weight: 500;
+            line-height: 1.5;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .topic-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+            align-items: flex-start;
+        }
+
+        .ai-guidance {
+            margin-top: 16px;
+            padding: 20px;
+            background: linear-gradient(to right, rgba(255, 140, 66, 0.03), var(--bg));
+            border-radius: 12px;
+            font-size: 0.875rem;
+            line-height: 1.8;
+            color: var(--text);
+            border-left: 3px solid var(--accent);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .ai-guidance.hidden {
+            display: none !important;
+        }
+
+        .ai-guidance-toggle {
+            margin-top: 8px;
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.75rem;
+            color: var(--text-light);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .ai-guidance-toggle:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--bg);
+        }
+
+        .ai-guidance p {
+            margin: 0 0 12px 0;
+        }
+
+        .ai-guidance p:last-child {
+            margin-bottom: 0;
+        }
+
+        .ai-guidance strong {
+            color: var(--text);
+            font-weight: 600;
+            display: block;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+
+        .ai-guidance strong:first-child {
+            margin-top: 0;
+        }
+
+        .ai-guidance ul,
+        .ai-guidance ol {
+            margin: 8px 0;
+            padding-left: 24px;
+        }
+
+        .ai-guidance li {
+            margin: 6px 0;
+        }
+
+        .ai-guidance-loading {
+            color: var(--text-light);
+            font-style: italic;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ai-guidance-loading::before {
+            content: '⏳';
+            font-style: normal;
+        }
+
+        .topic-name {
+            font-size: 0.9375rem;
+            font-weight: 500;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+
+        .topic-tags {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.6875rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .tag-priority-high {
+            background: rgba(255, 140, 66, 0.1);
+            color: var(--accent);
+        }
+
+        .tag-priority-medium {
+            background: rgba(107, 107, 107, 0.1);
+            color: var(--text-light);
+        }
+
+        .tag-priority-low {
+            background: rgba(232, 232, 232, 0.5);
+            color: var(--text-light);
+        }
+
+        .tag-status {
+            background: transparent;
+            border: 1px solid var(--border);
+        }
+
+        .tag-completed {
+            border-color: var(--success);
+            color: var(--success);
+        }
+
+        .tag-pending {
+            border-color: var(--pending);
+            color: var(--pending);
+        }
+
+        .topic-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 20px;
+        }
+
+        .info-box {
+            padding: 20px;
+            background: var(--bg);
+            border-radius: 12px;
+            margin-bottom: 32px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.875rem;
+            margin-bottom: 8px;
+        }
+
+        .info-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .info-label {
+            color: var(--text-light);
+        }
+
+        .info-value {
+            color: var(--text);
+            font-weight: 500;
+        }
+
+        .study-plan {
+            margin-top: 40px;
+        }
+
+        .study-day {
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 3px solid var(--accent);
+            background: var(--bg);
+            margin-bottom: 12px;
+        }
+
+        .study-day-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .study-day-date {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .study-day-number {
+            font-size: 0.75rem;
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .study-topics {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .study-plan-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        @media (max-width: 768px) {
+            .study-plan-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .study-topic {
+            padding: 6px 12px;
+            background: var(--surface);
+            border-radius: 8px;
+            font-size: 0.8125rem;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-light);
+        }
+
+        .empty-state-text {
+            font-size: 0.875rem;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.875rem;
+            color: var(--text-light);
+            text-decoration: none;
+            margin-bottom: 24px;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover {
+            color: var(--text);
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 32px 0;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 40px 16px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .card {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Interview Prep</h1>
+            <p class="subtitle">Study smarter, not harder</p>
+        </div>
+
+        <!-- New Interview Form -->
+        <div class="card" id="new-interview-card">
+            <form id="interview-form" class="form-minimal">
+                <div class="input-group">
+                    <label for="company">Company</label>
+                    <input type="text" id="company" name="company" placeholder="Leave blank for generic US company">
+                </div>
+                <div class="input-group">
+                    <label for="position">Position</label>
+                    <input type="text" id="position" name="position" placeholder="Data Scientist">
+                </div>
+                <div class="input-group">
+                    <label for="interview_date">Date</label>
+                    <input type="date" id="interview_date" name="interview_date">
+                </div>
+                <button type="submit" class="btn">Create</button>
+            </form>
+        </div>
+
+        <!-- Interviews List -->
+        <div id="interviews-section" class="hidden">
+            <div class="section-title">Interviews</div>
+            <div id="interviews-list" class="interview-grid"></div>
+        </div>
+
+        <!-- Interview Detail View -->
+        <div id="interview-detail" class="hidden">
+            <a href="#" class="back-link" onclick="showInterviewList(); return false;">
+                ← Back
+            </a>
+
+            <div class="card">
+                <div style="margin-bottom: 32px;">
+                    <h2 id="detail-title" style="font-size: 1.5rem; font-weight: 500; margin-bottom: 4px; letter-spacing: -0.02em;"></h2>
+                    <p id="detail-company" style="font-size: 0.875rem; color: var(--text-light);"></p>
+                </div>
+
+                <div class="info-box">
+                    <div class="info-row">
+                        <span class="info-label">Interview Date</span>
+                        <span class="info-value" id="detail-date"></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Days Remaining</span>
+                        <span class="info-value" id="days-until"></span>
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+
+                <div class="section-title">Add Topic</div>
+                <form id="topic-form" class="form-minimal">
+                    <div class="input-group">
+                        <label for="topic_name">Topic</label>
+                        <input type="text" id="topic_name" name="topic_name" placeholder="Leave blank to generate common topics">
+                    </div>
+                    <div class="input-group">
+                        <label for="topic_priority">Priority</label>
+                        <select id="topic_priority" name="priority">
+                            <option value="high">High</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="topic_notes">Notes</label>
+                        <textarea id="topic_notes" name="notes" placeholder="Optional notes"></textarea>
+                    </div>
+                    <button type="submit" class="btn">Add</button>
+                </form>
+
+                <div class="divider"></div>
+
+                <div class="section-title">Topics</div>
+                <div id="topics-list" class="topic-list"></div>
+
+                <div class="divider"></div>
+
+                <div class="study-plan">
+                    <div class="section-title">All Topics</div>
+                    <button class="btn btn-ghost" onclick="generateStudyPlan()">View All Topics</button>
+                    <div id="study-plan-content" style="margin-top: 24px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentInterviewId = null;
+
+        function formatAIGuidance(text) {
+            if (!text) return '';
+            
+            // Convert markdown-style bold **text** to <strong>
+            let formatted = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            // Split by lines first to handle list items properly
+            const lines = formatted.split('\n');
+            let html = '';
+            let inList = false;
+            let listItems = [];
+            
+            for (let line of lines) {
+                line = line.trim();
+                if (!line) {
+                    // Empty line - close list if open, add paragraph break
+                    if (inList && listItems.length > 0) {
+                        html += `<ul>${listItems.join('')}</ul>`;
+                        listItems = [];
+                        inList = false;
+                    }
+                    continue;
+                }
+                
+                // Check if it's a list item (starts with *, -, or number.)
+                if (/^[\*\-]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
+                    // Remove the bullet/number marker
+                    let itemText = line.replace(/^[\*\-]\s+/, '').replace(/^\d+\.\s+/, '').trim();
+                    // Remove colon after closing strong tag (e.g., "</strong>: text")
+                    itemText = itemText.replace(/<\/strong>:\s*/g, '</strong> ');
+                    // Remove leading colon if present
+                    itemText = itemText.replace(/^:\s*/, '').trim();
+                    listItems.push(`<li>${itemText}</li>`);
+                    inList = true;
+                } else {
+                    // Not a list item - close list if open
+                    if (inList && listItems.length > 0) {
+                        html += `<ul>${listItems.join('')}</ul>`;
+                        listItems = [];
+                        inList = false;
+                    }
+                    // Remove colon after closing strong tag
+                    let paraText = line.replace(/<\/strong>:\s*/g, '</strong> ');
+                    // Remove leading colon if present
+                    paraText = paraText.replace(/^:\s*/, '').trim();
+                    html += `<p>${paraText}</p>`;
+                }
+            }
+            
+            // Close any remaining list
+            if (inList && listItems.length > 0) {
+                html += `<ul>${listItems.join('')}</ul>`;
+            }
+            
+            return html || `<p>${formatted.replace(/\n/g, '<br>')}</p>`;
+        }
+
+        // Set minimum date to today (optional field)
+        const dateInput = document.getElementById('interview_date');
+        if (dateInput) {
+            dateInput.min = new Date().toISOString().split('T')[0];
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadInterviews();
+        });
+
+        document.getElementById('interview-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = {
+                company: document.getElementById('company').value,
+                position: document.getElementById('position').value,
+                interview_date: document.getElementById('interview_date').value
+            };
+
+            try {
+                const response = await fetch('/api/interviews', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    document.getElementById('interview-form').reset();
+                    loadInterviews();
+                }
+            } catch (error) {
+                console.error('Error creating interview:', error);
+            }
+        });
+
+        document.getElementById('topic-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentInterviewId) return;
+
+            const topicName = document.getElementById('topic_name').value.trim();
+            const formData = {
+                topic_name: topicName,
+                priority: document.getElementById('topic_priority').value,
+                notes: document.getElementById('topic_notes').value
+            };
+
+            try {
+                const response = await fetch(`/api/interviews/${currentInterviewId}/topics`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('topic-form').reset();
+                    
+                    // Show success message if multiple topics were generated
+                    if (data.topics && data.topics.length > 1) {
+                        // Brief flash message could go here, but reloading is fine
+                    }
+                    
+                    loadInterviewDetail(currentInterviewId);
+                } else {
+                    const errorData = await response.json();
+                    alert(errorData.error || 'Failed to add topic');
+                }
+            } catch (error) {
+                console.error('Error adding topic:', error);
+                alert('Failed to add topic. Please try again.');
+            }
+        });
+
+        async function loadInterviews() {
+            try {
+                const response = await fetch('/api/interviews');
+                const interviews = await response.json();
+
+                const listEl = document.getElementById('interviews-list');
+                const sectionEl = document.getElementById('interviews-section');
+
+                // Always show the section
+                sectionEl.classList.remove('hidden');
+                
+                if (interviews.length === 0) {
+                    listEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">No interviews yet</div></div>';
+                    return;
+                }
+
+                listEl.innerHTML = interviews.map(interview => {
+                    let dateDisplay = 'No date';
+                    let daysUntilDisplay = '';
+                    if (interview.interview_date) {
+                        const date = new Date(interview.interview_date);
+                        dateDisplay = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        const daysUntil = Math.ceil((date - new Date()) / (1000 * 60 * 60 * 24));
+                        daysUntilDisplay = daysUntil > 0 ? `${daysUntil}d left` : 'Past';
+                    }
+                    return `
+                        <div class="interview-card" onclick="loadInterviewDetail(${interview.id})">
+                            <div class="interview-card-actions" onclick="event.stopPropagation();">
+                                <button class="interview-delete-btn" onclick="deleteInterview(${interview.id})" title="Delete interview">×</button>
+                            </div>
+                            <div class="interview-header">
+                                <div>
+                                    <div class="interview-title">${interview.position || 'Interview'}</div>
+                                    <div class="interview-company">${interview.company || 'Generic Company (US)'}</div>
+                                </div>
+                                <div class="interview-date">${dateDisplay}</div>
+                            </div>
+                            <div class="interview-meta">
+                                <span>${interview.topic_count || 0} topics</span>
+                                <span>${interview.completed_topics || 0} done</span>
+                                ${daysUntilDisplay ? `<span>${daysUntilDisplay}</span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                // Always show the section if there are interviews
+                sectionEl.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading interviews:', error);
+            }
+        }
+
+        async function loadInterviewDetail(interviewId) {
+            currentInterviewId = interviewId;
+            try {
+                const response = await fetch(`/api/interviews/${interviewId}`);
+                const interview = await response.json();
+
+                document.getElementById('detail-title').textContent = interview.position || 'Interview';
+                document.getElementById('detail-company').textContent = interview.company || 'Generic Company (US)';
+                
+                if (interview.interview_date) {
+                    const date = new Date(interview.interview_date);
+                    document.getElementById('detail-date').textContent = date.toLocaleDateString('en-US', { 
+                        month: 'long', 
+                        day: 'numeric', 
+                        year: 'numeric' 
+                    });
+                    
+                    const daysUntil = Math.ceil((date - new Date()) / (1000 * 60 * 60 * 24));
+                    document.getElementById('days-until').textContent = daysUntil > 0 ? `${daysUntil} days` : 'Past';
+                } else {
+                    document.getElementById('detail-date').textContent = 'Not set';
+                    document.getElementById('days-until').textContent = '—';
+                }
+
+                const topicsListEl = document.getElementById('topics-list');
+                if (interview.topics && interview.topics.length > 0) {
+                    // Group topics by category
+                    const topicsByCategory = {};
+                    const uncategorized = [];
+                    
+                    interview.topics.forEach(topic => {
+                        const category = topic.category_name || null;
+                        if (category) {
+                            if (!topicsByCategory[category]) {
+                                topicsByCategory[category] = [];
+                            }
+                            topicsByCategory[category].push(topic);
+                        } else {
+                            uncategorized.push(topic);
+                        }
+                    });
+                    
+                    // Generate HTML with tabs and category content
+                    let tabsHtml = '';
+                    let contentHtml = '';
+                    
+                    // Sublime colors - vibrant and beautiful
+                    const categoryColors = [
+                        '#FF6B9D', // Pink
+                        '#4ECDC4', // Turquoise
+                        '#95E1D3', // Mint
+                        '#F38181', // Coral
+                        '#AA96DA', // Lavender
+                        '#FCBAD3', // Rose
+                        '#A8E6CF', // Green
+                        '#FFD3A5', // Peach
+                        '#C7CEEA', // Periwinkle
+                        '#FFB6C1'  // Light Pink
+                    ];
+                    
+                    const categories = Object.keys(topicsByCategory);
+                    const hasUncategorized = uncategorized.length > 0;
+                    
+                    // Generate tabs only if we have categories or uncategorized topics
+                    if (categories.length > 0 || hasUncategorized) {
+                        categories.forEach((category, index) => {
+                            const color = categoryColors[index % categoryColors.length];
+                            const categoryId = `category-${index}`;
+                            tabsHtml += `
+                                <button class="topic-tab ${index === 0 ? 'active' : ''}" 
+                                        onclick="window.switchTopicTab('${categoryId}')" 
+                                        style="color: ${color}; border-color: ${color};"
+                                        id="tab-${categoryId}">
+                                    ${category}
+                                </button>
+                            `;
+                        });
+                    
+                        // Add uncategorized tab if needed
+                        if (hasUncategorized) {
+                            const uncategorizedId = 'category-uncategorized';
+                            tabsHtml += `
+                                <button class="topic-tab ${categories.length === 0 ? 'active' : ''}" 
+                                        onclick="window.switchTopicTab('${uncategorizedId}')" 
+                                        style="color: #888; border-color: #888;"
+                                        id="tab-${uncategorizedId}">
+                                    Other
+                                </button>
+                            `;
+                        }
+                    }
+                    
+                    // Generate content for each category
+                    categories.forEach((category, index) => {
+                        const categoryId = `category-${index}`;
+                        const color = categoryColors[index % categoryColors.length];
+                        let categoryContent = '';
+                        
+                        topicsByCategory[category].forEach(topic => {
+                            categoryContent += `
+                                <div class="topic-item topic-subtopic" style="border-left: 3px solid ${color};">
+                                    <div class="topic-header">
+                                        <div class="topic-content">
+                                            <div class="topic-name">${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</div>
+                                            <div class="topic-tags">
+                                                <span class="tag tag-priority-${topic.priority || 'medium'}">${topic.priority || 'medium'}</span>
+                                                <span class="tag tag-status tag-${topic.status || 'pending'}">${topic.status || 'pending'}</span>
+                                                ${topic.notes ? `<span style="font-size: 0.75rem; color: var(--text-light);">${topic.notes}</span>` : ''}
+                                            </div>
+                                        </div>
+                                        <div class="topic-actions">
+                                            <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
+                                                ${topic.ai_guidance ? '🔄 Regenerate' : '✨ Generate'}
+                                            </button>
+                                            <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                                                ${topic.status === 'completed' ? 'Undo' : 'Done'}
+                                            </button>
+                                            <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
+                                        </div>
+                                    </div>
+                                    ${topic.ai_guidance ? `
+                                        <div style="margin-top: 12px;">
+                                            <button class="ai-guidance-toggle" onclick="toggleAIGuidance(${topic.id})" id="toggle-ai-${topic.id}">
+                                                <span>▼</span> Show Guidance
+                                            </button>
+                                            <div class="ai-guidance hidden" id="ai-guidance-${topic.id}">
+                                                ${formatAIGuidance(topic.ai_guidance)}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        });
+                        
+                        contentHtml += `
+                            <div class="topic-category-content ${index === 0 ? 'active' : ''}" id="content-${categoryId}" style="display: ${index === 0 ? 'grid' : 'none'}; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                                ${categoryContent}
+                            </div>
+                        `;
+                    });
+                    
+                    // Add uncategorized content if needed
+                    if (hasUncategorized) {
+                        let uncategorizedContent = '';
+                        uncategorized.forEach(topic => {
+                            uncategorizedContent += `
+                                <div class="topic-item">
+                                    <div class="topic-header">
+                                        <div class="topic-content">
+                                            <div class="topic-name">${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</div>
+                                            <div class="topic-tags">
+                                                <span class="tag tag-priority-${topic.priority || 'medium'}">${topic.priority || 'medium'}</span>
+                                                <span class="tag tag-status tag-${topic.status || 'pending'}">${topic.status || 'pending'}</span>
+                                                ${topic.notes ? `<span style="font-size: 0.75rem; color: var(--text-light);">${topic.notes}</span>` : ''}
+                                            </div>
+                                        </div>
+                                        <div class="topic-actions">
+                                            <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
+                                                ${topic.ai_guidance ? '🔄 Regenerate' : '✨ Generate'}
+                                            </button>
+                                            <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                                                ${topic.status === 'completed' ? 'Undo' : 'Done'}
+                                            </button>
+                                            <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
+                                        </div>
+                                    </div>
+                                    ${topic.ai_guidance ? `
+                                        <div style="margin-top: 12px;">
+                                            <button class="ai-guidance-toggle" onclick="toggleAIGuidance(${topic.id})" id="toggle-ai-${topic.id}">
+                                                <span>▼</span> Show Guidance
+                                            </button>
+                                            <div class="ai-guidance hidden" id="ai-guidance-${topic.id}">
+                                                ${formatAIGuidance(topic.ai_guidance)}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        });
+                        
+                        contentHtml += `
+                            <div class="topic-category-content ${categories.length === 0 ? 'active' : ''}" id="content-category-uncategorized" style="display: ${categories.length === 0 ? 'grid' : 'none'}; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                                ${uncategorizedContent}
+                            </div>
+                        `;
+                    }
+                    
+                    // Always show tabs if we have categories or uncategorized topics
+                    if (categories.length > 0 || hasUncategorized) {
+                        topicsListEl.innerHTML = `
+                            <div class="topic-tabs">
+                                ${tabsHtml}
+                            </div>
+                            ${contentHtml}
+                        `;
+                    } else {
+                        topicsListEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">No topics yet</div></div>';
+                    }
+                } else {
+                    topicsListEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">No topics yet</div></div>';
+                }
+
+                document.getElementById('new-interview-card').classList.add('hidden');
+                document.getElementById('interviews-section').classList.add('hidden');
+                document.getElementById('interview-detail').classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading interview detail:', error);
+            }
+        }
+
+        function showInterviewList() {
+            document.getElementById('new-interview-card').classList.remove('hidden');
+            document.getElementById('interviews-section').classList.remove('hidden');
+            document.getElementById('interview-detail').classList.add('hidden');
+            currentInterviewId = null;
+            loadInterviews();
+        }
+
+        window.switchTopicTab = function(categoryId) {
+            console.log('Switching to tab:', categoryId);
+            // Hide all content
+            document.querySelectorAll('.topic-category-content').forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.topic-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected content
+            const content = document.getElementById(`content-${categoryId}`);
+            console.log('Content element:', content);
+            if (content) {
+                content.classList.add('active');
+                content.style.display = 'grid';
+            }
+            
+            // Add active class to selected tab
+            const tab = document.getElementById(`tab-${categoryId}`);
+            console.log('Tab element:', tab);
+            if (tab) {
+                tab.classList.add('active');
+            }
+        };
+
+        async function deleteInterview(interviewId) {
+            if (!confirm('Are you sure you want to delete this interview? This will also delete all associated topics.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/interviews/${interviewId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadInterviews();
+                } else {
+                    const data = await response.json();
+                    alert(data.error || 'Failed to delete interview');
+                }
+            } catch (error) {
+                console.error('Error deleting interview:', error);
+                alert('Failed to delete interview. Please try again.');
+            }
+        }
+
+        async function toggleTopicStatus(topicId, currentStatus) {
+            const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
+            try {
+                const response = await fetch(`/api/topics/${topicId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                });
+
+                if (response.ok) {
+                    // Reload the interview detail to show updated status
+                    loadInterviewDetail(currentInterviewId);
+                } else {
+                    const data = await response.json();
+                    console.error('Error updating topic:', data);
+                    alert('Failed to update topic status');
+                }
+            } catch (error) {
+                console.error('Error updating topic:', error);
+                alert('Failed to update topic status. Please try again.');
+            }
+        }
+
+        async function deleteTopic(topicId) {
+            if (!confirm('Delete this topic?')) return;
+
+            try {
+                const response = await fetch(`/api/topics/${topicId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadInterviewDetail(currentInterviewId);
+                }
+            } catch (error) {
+                console.error('Error deleting topic:', error);
+            }
+        }
+
+        async function generateAIGuidance(topicId) {
+            const btn = document.getElementById(`ai-btn-${topicId}`);
+            
+            // Show loading state
+            let guidanceEl = document.getElementById(`ai-guidance-${topicId}`);
+            let toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
+            
+            if (guidanceEl) {
+                guidanceEl.classList.remove('hidden');
+                guidanceEl.innerHTML = '<span class="ai-guidance-loading">Generating guidance...</span>';
+                if (toggleBtn) {
+                    toggleBtn.innerHTML = '<span>▲</span> Hide Guidance';
+                }
+            } else {
+                // Create guidance element if it doesn't exist
+                const topicItem = btn.closest('.topic-item');
+                const guidanceContainer = document.createElement('div');
+                guidanceContainer.style.marginTop = '12px';
+                guidanceContainer.innerHTML = `
+                    <button class="ai-guidance-toggle" onclick="toggleAIGuidance(${topicId})" id="toggle-ai-${topicId}">
+                        <span>▲</span> Hide Guidance
+                    </button>
+                    <div class="ai-guidance" id="ai-guidance-${topicId}">
+                        <span class="ai-guidance-loading">Generating guidance...</span>
+                    </div>
+                `;
+                topicItem.appendChild(guidanceContainer);
+            }
+            
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+
+            try {
+                const response = await fetch(`/api/topics/${topicId}/ai-guidance`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Update the guidance element
+                    let guidanceElement = document.getElementById(`ai-guidance-${topicId}`);
+                    let toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
+                    
+                    if (guidanceElement) {
+                        guidanceElement.innerHTML = formatAIGuidance(data.ai_guidance);
+                        guidanceElement.classList.remove('hidden');
+                        if (toggleBtn) {
+                            toggleBtn.innerHTML = '<span>▲</span> Hide Guidance';
+                        }
+                    }
+                    
+                    btn.textContent = '🔄 Regenerate';
+                    // Reload interview to get updated topic data
+                    loadInterviewDetail(currentInterviewId);
+                } else {
+                    alert(data.error || 'Failed to generate AI guidance');
+                    const guidanceElement = document.getElementById(`ai-guidance-${topicId}`);
+                    const toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
+                    if (guidanceElement) {
+                        guidanceElement.remove();
+                    }
+                    if (toggleBtn) {
+                        toggleBtn.remove();
+                    }
+                }
+            } catch (error) {
+                console.error('Error generating AI guidance:', error);
+                alert('Failed to generate AI guidance. Make sure GROQ_API_KEY or GOOGLE_API_KEY is set.');
+                const guidanceElement = document.getElementById(`ai-guidance-${topicId}`);
+                const toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
+                if (guidanceElement) {
+                    guidanceElement.remove();
+                }
+                if (toggleBtn) {
+                    toggleBtn.remove();
+                }
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function toggleAIGuidance(topicId) {
+            const guidanceEl = document.getElementById(`ai-guidance-${topicId}`);
+            const toggleBtn = document.getElementById(`toggle-ai-${topicId}`);
+            
+            if (!guidanceEl || !toggleBtn) return;
+            
+            const isHidden = guidanceEl.classList.contains('hidden');
+            
+            if (isHidden) {
+                guidanceEl.classList.remove('hidden');
+                toggleBtn.innerHTML = '<span>▲</span> Hide Guidance';
+            } else {
+                guidanceEl.classList.add('hidden');
+                toggleBtn.innerHTML = '<span>▼</span> Show Guidance';
+            }
+        }
+
+        async function generateStudyPlan() {
+            if (!currentInterviewId) return;
+
+            try {
+                const response = await fetch(`/api/interviews/${currentInterviewId}/study-plan`);
+                const data = await response.json();
+
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+
+                const planEl = document.getElementById('study-plan-content');
+                
+                if (data.topics && data.total > 0) {
+                    let html = `<div style="margin-bottom: 20px; font-size: 0.875rem; color: var(--text-light);">Total: ${data.total} topics</div>`;
+                    html += `<div class="study-plan-grid">`;
+                    
+                    // Display high priority topics
+                    if (data.topics.high && data.topics.high.length > 0) {
+                        html += `
+                            <div class="study-day" style="border-left-color: var(--accent);">
+                                <div class="study-day-header">
+                                    <div class="study-day-date" style="font-weight: 600;">High Priority</div>
+                                    <div class="study-day-number">${data.topics.high.length}</div>
+                                </div>
+                                <div class="study-topics">
+                                    ${data.topics.high.map(topic => {
+                                        return `<span class="study-topic">${topic.topic_name || 'Untitled Topic'}</span>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Display medium priority topics
+                    if (data.topics.medium && data.topics.medium.length > 0) {
+                        html += `
+                            <div class="study-day" style="border-left-color: var(--text-light);">
+                                <div class="study-day-header">
+                                    <div class="study-day-date" style="font-weight: 600;">Medium Priority</div>
+                                    <div class="study-day-number">${data.topics.medium.length}</div>
+                                </div>
+                                <div class="study-topics">
+                                    ${data.topics.medium.map(topic => {
+                                        return `<span class="study-topic">${topic.topic_name || 'Untitled Topic'}</span>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Display low priority topics
+                    if (data.topics.low && data.topics.low.length > 0) {
+                        html += `
+                            <div class="study-day" style="border-left-color: var(--border);">
+                                <div class="study-day-header">
+                                    <div class="study-day-date" style="font-weight: 600;">Low Priority</div>
+                                    <div class="study-day-number">${data.topics.low.length}</div>
+                                </div>
+                                <div class="study-topics">
+                                    ${data.topics.low.map(topic => {
+                                        return `<span class="study-topic">${topic.topic_name || 'Untitled Topic'}</span>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    html += `</div>`;
+                    planEl.innerHTML = html;
+                } else {
+                    planEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">Add topics to see your study plan</div></div>';
+                }
+            } catch (error) {
+                console.error('Error generating study plan:', error);
+                alert('Failed to load study plan');
+            }
+        }
+    </script>
+</body>
+</html>
