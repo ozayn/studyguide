@@ -116,6 +116,9 @@
             background: transparent;
             color: var(--text);
             transition: all 0.2s;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
         }
 
         input:focus,
@@ -149,6 +152,8 @@
             background: var(--accent);
             color: white;
             letter-spacing: -0.01em;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
 
         .btn:hover {
@@ -651,17 +656,168 @@
             margin: 32px 0;
         }
 
-        @media (max-width: 640px) {
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
             .container {
-                padding: 40px 16px;
+                padding: 24px 16px;
             }
 
             h1 {
                 font-size: 1.5rem;
+                margin-bottom: 8px;
+            }
+
+            .subtitle {
+                font-size: 0.875rem;
             }
 
             .card {
-                padding: 24px;
+                padding: 20px 16px;
+                border-radius: 16px;
+            }
+
+            .btn {
+                padding: 14px 20px;
+                font-size: 0.9375rem;
+                min-height: 44px; /* Better touch target */
+            }
+
+            .btn-mini {
+                padding: 8px 12px;
+                font-size: 0.8125rem;
+                min-height: 36px; /* Better touch target */
+            }
+
+            .topic-tabs {
+                gap: 6px;
+                margin-bottom: 20px;
+                padding-bottom: 10px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none; /* Firefox */
+                -ms-overflow-style: none; /* IE/Edge */
+            }
+
+            .topic-tabs::-webkit-scrollbar {
+                display: none; /* Chrome/Safari */
+            }
+
+            .topic-tab {
+                padding: 10px 16px;
+                font-size: 0.875rem;
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+
+            .topic-item {
+                padding: 16px;
+            }
+
+            .topic-header {
+                flex-direction: column;
+                gap: 12px;
+                align-items: stretch;
+            }
+
+            .topic-actions {
+                justify-content: flex-start;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .topic-name {
+                font-size: 0.9375rem;
+                line-height: 1.5;
+            }
+
+            .interview-card {
+                padding: 16px;
+            }
+
+            .interview-header {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .interview-title {
+                font-size: 1rem;
+            }
+
+            .interview-company {
+                font-size: 0.8125rem;
+            }
+
+            .interview-meta {
+                flex-direction: column;
+                gap: 8px;
+                font-size: 0.75rem;
+            }
+
+            .form-minimal {
+                gap: 20px;
+            }
+
+            input, textarea, select {
+                font-size: 1rem; /* Prevents zoom on iOS */
+                padding: 12px 0;
+            }
+
+            .input-group {
+                margin-bottom: 20px;
+            }
+
+            .section-title {
+                font-size: 1.125rem;
+                margin-bottom: 16px;
+            }
+
+            .interview-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+
+            .ai-guidance {
+                padding: 16px;
+                font-size: 0.8125rem;
+                line-height: 1.7;
+            }
+
+            .ai-guidance-toggle {
+                padding: 10px 16px;
+                font-size: 0.875rem;
+                min-height: 40px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px 12px;
+            }
+
+            h1 {
+                font-size: 1.375rem;
+            }
+
+            .card {
+                padding: 16px 12px;
+            }
+
+            .btn {
+                width: 100%;
+                padding: 14px 20px;
+            }
+
+            .topic-item {
+                padding: 14px;
+            }
+
+            .topic-actions {
+                width: 100%;
+            }
+
+            .topic-actions .btn-mini {
+                flex: 1;
+                min-width: 0;
             }
         }
     </style>
