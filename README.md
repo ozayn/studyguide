@@ -1,4 +1,4 @@
-# Interview Prep Coach
+# My Study Guide
 
 A web application to help you prepare for interviews by tracking your study topics and generating personalized study plans.
 
