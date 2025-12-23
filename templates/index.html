@@ -1323,7 +1323,28 @@
         async function loadInterviews() {
             try {
                 const response = await fetch('/api/interviews');
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Failed to load study materials' }));
+                    console.error('Error loading study materials:', errorData);
+                    const listEl = document.getElementById('interviews-list');
+                    const sectionEl = document.getElementById('interviews-section');
+                    sectionEl.classList.remove('hidden');
+                    listEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">Error loading study materials. Please refresh the page.</div></div>';
+                    return;
+                }
+                
                 const interviews = await response.json();
+                
+                // Ensure interviews is an array
+                if (!Array.isArray(interviews)) {
+                    console.error('Invalid response format:', interviews);
+                    const listEl = document.getElementById('interviews-list');
+                    const sectionEl = document.getElementById('interviews-section');
+                    sectionEl.classList.remove('hidden');
+                    listEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">Error loading study materials. Please refresh the page.</div></div>';
+                    return;
+                }
 
                 const listEl = document.getElementById('interviews-list');
                 const sectionEl = document.getElementById('interviews-section');

@@ -467,13 +467,19 @@ def get_interviews():
         if USE_POSTGRESQL:
             cursor.close()
         conn.close()
-        return jsonify([dict(row) for row in interviews])
+        
+        # Always return an array, even if empty
+        result = [dict(row) for row in interviews] if interviews else []
+        return jsonify(result)
     except Exception as e:
         import traceback
         error_msg = str(e)
         traceback.print_exc()
         print(f"Error in get_interviews: {error_msg}")
-        return jsonify({'error': f'Failed to load interviews: {error_msg}'}), 500
+        app.logger.error(f"Error loading interviews: {error_msg}")
+        # Return empty array on error so frontend doesn't break, but log the error
+        # The error will be visible in Railway logs
+        return jsonify([])
 
 @app.route('/api/interviews', methods=['POST'])
 def create_interview():
