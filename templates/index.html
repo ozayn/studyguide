@@ -786,61 +786,78 @@
             color: var(--success);
         }
 
-        /* Checklist View Styles - Simplified like admin view */
+        /* Checklist View Styles - Enhanced */
         .checklist-view {
             list-style: none;
             padding: 0;
             margin: 0;
         }
 
+        .checklist-category-header {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
         .checklist-item {
             display: flex;
             align-items: center;
             gap: 12px;
-            padding: 12px;
-            margin-bottom: 8px;
-            background: var(--bg);
+            padding: 14px 16px;
+            margin-bottom: 6px;
+            background: var(--surface);
             border-radius: 8px;
             border: 1px solid var(--border);
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
         }
 
         .checklist-item:hover {
-            background: #f5f5f5;
+            background: var(--bg);
+            border-color: var(--accent);
+            transform: translateX(2px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .checklist-item:active {
+            transform: translateX(0);
         }
 
         .checklist-checkbox {
-            width: 20px;
-            height: 20px;
-            min-width: 20px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
+            width: 22px;
+            height: 22px;
+            min-width: 22px;
+            border: 2px solid var(--border);
+            border-radius: 6px;
             cursor: pointer;
             position: relative;
-            transition: all 0.2s;
-            background: white;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background: var(--surface);
             flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .checklist-checkbox:hover {
-            border-color: #999;
+            border-color: var(--accent);
+            transform: scale(1.05);
         }
 
         .checklist-checkbox.checked {
-            background: #4CAF50;
-            border-color: #4CAF50;
+            background: var(--success);
+            border-color: var(--success);
+            transform: scale(1);
         }
 
         .checklist-checkbox.checked::after {
             content: '✓';
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
             color: white;
             font-size: 14px;
             font-weight: bold;
+            line-height: 1;
         }
 
         .checklist-item-name {
@@ -848,11 +865,13 @@
             font-size: 0.9375rem;
             color: var(--text);
             transition: all 0.2s;
+            line-height: 1.5;
         }
 
         .checklist-item-name.completed {
             text-decoration: line-through;
-            color: #999;
+            color: var(--text-light);
+            opacity: 0.6;
         }
 
         .tag-pending {
@@ -1523,6 +1542,15 @@
 
                 const topicsListEl = document.getElementById('topics-list');
                 if (interview.topics && interview.topics.length > 0) {
+                    // Check view mode - render checklist if needed
+                    if (viewMode === 'checklist') {
+                        await renderChecklistView(interview.topics, topicsListEl);
+                        document.getElementById('new-interview-card').classList.add('hidden');
+                        document.getElementById('interviews-section').classList.add('hidden');
+                        document.getElementById('interview-detail').classList.remove('hidden');
+                        return;
+                    }
+                    
                     // Group topics by main category and subcategory
                     const topicsByMainCategory = {};
                     const uncategorized = [];
@@ -1895,6 +1923,26 @@
                 document.getElementById('interviews-section').classList.add('hidden');
                 document.getElementById('interview-detail').classList.remove('hidden');
                 
+                // Update view mode button state
+                const viewModeBtn = document.getElementById('view-mode-btn');
+                const exportBtn = document.getElementById('export-pdf-btn');
+                if (viewModeBtn) {
+                    if (viewMode === 'checklist') {
+                        viewModeBtn.textContent = 'Tree View';
+                        viewModeBtn.style.background = 'var(--accent)';
+                        viewModeBtn.style.color = 'white';
+                        viewModeBtn.style.borderColor = 'var(--accent)';
+                    } else {
+                        viewModeBtn.textContent = 'Checklist';
+                        viewModeBtn.style.background = '#f5f5f5';
+                        viewModeBtn.style.color = '#888';
+                        viewModeBtn.style.borderColor = '#e0e0e0';
+                    }
+                }
+                if (exportBtn) {
+                    exportBtn.style.display = viewMode === 'checklist' ? 'inline-block' : 'none';
+                }
+                
                 // Reset all topics visibility state
                 allTopicsVisible = false;
                 const planEl = document.getElementById('study-plan-content');
@@ -2023,11 +2071,25 @@
             viewMode = viewMode === 'tree' ? 'checklist' : 'tree';
             const btn = document.getElementById('view-mode-btn');
             const exportBtn = document.getElementById('export-pdf-btn');
-            btn.textContent = viewMode === 'tree' ? 'Checklist' : 'Tree';
+            
+            // Update button text and styling
+            if (viewMode === 'checklist') {
+                btn.textContent = 'Tree View';
+                btn.style.background = 'var(--accent)';
+                btn.style.color = 'white';
+                btn.style.borderColor = 'var(--accent)';
+            } else {
+                btn.textContent = 'Checklist';
+                btn.style.background = '#f5f5f5';
+                btn.style.color = '#888';
+                btn.style.borderColor = '#e0e0e0';
+            }
+            
             // Show export button only in checklist view
             if (exportBtn) {
                 exportBtn.style.display = viewMode === 'checklist' ? 'inline-block' : 'none';
             }
+            
             if (currentInterviewId) {
                 loadInterviewDetail(currentInterviewId);
             }
@@ -2130,6 +2192,19 @@
 
             // Get category order from topics.json
             let categoryOrder = [];
+            const categoryColors = [
+                '#FF6B9D', // Pink
+                '#4ECDC4', // Turquoise
+                '#95E1D3', // Mint
+                '#F38181', // Coral
+                '#AA96DA', // Lavender
+                '#FCBAD3', // Rose
+                '#A8E6CF', // Green
+                '#FFD3A5', // Peach
+                '#C7CEEA', // Periwinkle
+                '#FFB6C1'  // Light Pink
+            ];
+            
             try {
                 const orderResponse = await fetch('/api/topics');
                 if (orderResponse.ok) {
@@ -2148,19 +2223,63 @@
                     .concat(Object.keys(topicsByCategory).filter(cat => !categoryOrder.includes(cat)))
                 : Object.keys(topicsByCategory);
 
-            let html = '<ul class="checklist-view">';
+            // Calculate overall progress
+            const totalTopics = topics.length;
+            const completedTopics = topics.filter(t => t.status === 'completed').length;
+            const progressPercent = totalTopics > 0 ? Math.round((completedTopics / totalTopics) * 100) : 0;
 
-            // Render all topics in a simple flat list (like admin view)
-            // First render categorized topics
-            sortedCategories.forEach(category => {
+            let html = `
+                <div class="checklist-progress" style="margin-bottom: 24px; padding: 20px; background: var(--bg); border-radius: 12px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div style="font-size: 0.875rem; font-weight: 500; color: var(--text);">Progress</div>
+                        <div style="font-size: 0.875rem; color: var(--text-light);">${completedTopics} / ${totalTopics} completed</div>
+                    </div>
+                    <div style="width: 100%; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden;">
+                        <div style="width: ${progressPercent}%; height: 100%; background: var(--success); transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+                <ul class="checklist-view">
+            `;
+
+            // Render categorized topics with category headers
+            sortedCategories.forEach((category, index) => {
                 const categoryTopics = topicsByCategory[category];
+                const categoryCompleted = categoryTopics.filter(t => t.status === 'completed').length;
+                const categoryTotal = categoryTopics.length;
+                const categoryProgress = categoryTotal > 0 ? Math.round((categoryCompleted / categoryTotal) * 100) : 0;
+                const color = categoryColors[index % categoryColors.length];
+                
+                html += `
+                    <li class="checklist-category-header" style="margin-top: ${index > 0 ? '24px' : '0'}; margin-bottom: 12px; padding: 12px 16px; background: ${color}15; border-left: 3px solid ${color}; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-weight: 600; font-size: 0.9375rem; color: var(--text);">${category}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-light);">${categoryCompleted}/${categoryTotal}</div>
+                        </div>
+                    </li>
+                `;
+                
+                // Sort topics by priority (high first) then by completion status (pending first)
+                const priorityOrder = { 'high': 3, 'medium': 2, 'low': 1 };
+                categoryTopics.sort((a, b) => {
+                    const priorityDiff = (priorityOrder[b.priority] || 2) - (priorityOrder[a.priority] || 2);
+                    if (priorityDiff !== 0) return priorityDiff;
+                    // If same priority, show pending first
+                    if (a.status === 'completed' && b.status !== 'completed') return 1;
+                    if (a.status !== 'completed' && b.status === 'completed') return -1;
+                    return 0;
+                });
+                
                 categoryTopics.forEach(topic => {
                     const isCompleted = topic.status === 'completed';
+                    const priority = topic.priority || 'medium';
                     html += `
-                        <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                        <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')" style="border-left: 3px solid ${isCompleted ? 'var(--success)' : (priority === 'high' ? color : 'transparent')};">
                             <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
-                            <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
-                                ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
+                            <div class="checklist-item-name ${isCompleted ? 'completed' : ''}" style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span>${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</span>
+                                    ${priority === 'high' && !isCompleted ? `<span class="tag tag-priority-high" style="font-size: 0.625rem; padding: 2px 6px;">High</span>` : ''}
+                                </div>
                             </div>
                         </li>
                     `;
@@ -2168,17 +2287,33 @@
             });
 
             // Render uncategorized topics
-            uncategorized.forEach(topic => {
-                const isCompleted = topic.status === 'completed';
+            if (uncategorized.length > 0) {
+                const uncatCompleted = uncategorized.filter(t => t.status === 'completed').length;
                 html += `
-                    <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
-                        <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
-                        <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
-                            ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
+                    <li class="checklist-category-header" style="margin-top: ${sortedCategories.length > 0 ? '24px' : '0'}; margin-bottom: 12px; padding: 12px 16px; background: #f5f5f5; border-left: 3px solid #888; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-weight: 600; font-size: 0.9375rem; color: var(--text);">Other</div>
+                            <div style="font-size: 0.75rem; color: var(--text-light);">${uncatCompleted}/${uncategorized.length}</div>
                         </div>
                     </li>
                 `;
-            });
+                
+                uncategorized.forEach(topic => {
+                    const isCompleted = topic.status === 'completed';
+                    const priority = topic.priority || 'medium';
+                    html += `
+                        <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')" style="border-left: 3px solid ${isCompleted ? 'var(--success)' : 'transparent'};">
+                            <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
+                            <div class="checklist-item-name ${isCompleted ? 'completed' : ''}" style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span>${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</span>
+                                    ${priority === 'high' && !isCompleted ? `<span class="tag tag-priority-high" style="font-size: 0.625rem; padding: 2px 6px;">High</span>` : ''}
+                                </div>
+                            </div>
+                        </li>
+                    `;
+                });
+            }
 
             html += '</ul>';
             container.innerHTML = html;
