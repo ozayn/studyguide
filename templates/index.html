@@ -1195,12 +1195,12 @@
         <div class="card" id="new-interview-card">
             <form id="interview-form" class="form-minimal">
                 <div class="input-group">
-                    <label for="company">Company</label>
-                    <input type="text" id="company" name="company" placeholder="Leave blank for generic US company">
-                </div>
-                <div class="input-group">
                     <label for="position">Position</label>
                     <input type="text" id="position" name="position" placeholder="Data Scientist">
+                </div>
+                <div class="input-group">
+                    <label for="company">Company <span style="color: var(--text-light); font-weight: normal;">(optional)</span></label>
+                    <input type="text" id="company" name="company" placeholder="Company name">
                 </div>
                 <div class="input-group">
                     <label for="interview_date">Date</label>
@@ -1241,26 +1241,31 @@
 
                 <div class="divider"></div>
 
-                <div class="section-title">Add Topic</div>
-                <form id="topic-form" class="form-minimal">
-                    <div class="input-group">
-                        <label for="topic_name">Topic</label>
-                        <input type="text" id="topic_name" name="topic_name" placeholder="Leave blank to generate common topics">
+                <div id="add-topic-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div class="section-title" style="margin: 0;">Add Topic</div>
+                        <button type="button" class="btn btn-ghost btn-mini" onclick="toggleAddTopicForm()" id="toggle-add-topic-btn" style="display: none;">Show Form</button>
                     </div>
-                    <div class="input-group">
-                        <label for="topic_priority">Priority</label>
-                        <select id="topic_priority" name="priority">
-                            <option value="high">High</option>
-                            <option value="medium" selected>Medium</option>
-                            <option value="low">Low</option>
-                        </select>
-                    </div>
-                    <div class="input-group">
-                        <label for="topic_notes">Notes</label>
-                        <textarea id="topic_notes" name="notes" placeholder="Optional notes"></textarea>
-                    </div>
-                    <button type="submit" class="btn">Add</button>
-                </form>
+                    <form id="topic-form" class="form-minimal">
+                        <div class="input-group">
+                            <label for="topic_name">Topic</label>
+                            <input type="text" id="topic_name" name="topic_name" placeholder="Leave blank to generate common topics">
+                        </div>
+                        <div class="input-group">
+                            <label for="topic_priority">Priority</label>
+                            <select id="topic_priority" name="priority">
+                                <option value="high">High</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="low">Low</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="topic_notes">Notes</label>
+                            <textarea id="topic_notes" name="notes" placeholder="Optional notes"></textarea>
+                        </div>
+                        <button type="submit" class="btn">Add</button>
+                    </form>
+                </div>
 
                 <div class="divider"></div>
 
@@ -1413,6 +1418,22 @@
                     if (!currentInterviewId) return;
 
                     const topicName = document.getElementById('topic_name').value.trim();
+                    
+                    // If topic name is blank (will generate common topics), check if topics already exist
+                    if (!topicName) {
+                        try {
+                            const checkResponse = await fetch(`/api/interviews/${currentInterviewId}`);
+                            const checkInterview = await checkResponse.json();
+                            if (checkInterview.topics && checkInterview.topics.length > 0) {
+                                if (!confirm('Topics already exist. This will add more topics. Continue?')) {
+                                    return;
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Error checking existing topics:', err);
+                        }
+                    }
+                    
                     const formData = {
                         topic_name: topicName,
                         priority: document.getElementById('topic_priority').value,
@@ -1501,8 +1522,8 @@
                             </div>
                             <div class="interview-header">
                                 <div>
-                                    <div class="interview-title">${interview.position || 'Study Material'}</div>
-                                    <div class="interview-company">${interview.company || 'Generic Company (US)'}</div>
+                                    <div class="interview-title">${interview.company && interview.company.trim() && interview.company !== 'Generic Company (US)' ? interview.company : 'General'}</div>
+                                    ${interview.position ? `<div class="interview-company">${interview.position}</div>` : ''}
                                 </div>
                                 <div class="interview-date">${dateDisplay}</div>
                             </div>
@@ -1528,8 +1549,20 @@
                 const response = await fetch(`/api/interviews/${interviewId}`);
                 const interview = await response.json();
 
-                document.getElementById('detail-title').textContent = interview.position || 'Study Material';
-                document.getElementById('detail-company').textContent = interview.company || 'Generic Company (US)';
+                // Show company name (or "General") as title
+                const company = interview.company && interview.company.trim() && interview.company !== 'Generic Company (US)' 
+                    ? interview.company 
+                    : 'General';
+                document.getElementById('detail-title').textContent = company;
+                
+                // Show position below title if it exists
+                const companyEl = document.getElementById('detail-company');
+                if (interview.position && interview.position.trim()) {
+                    companyEl.textContent = interview.position;
+                    companyEl.style.display = 'block';
+                } else {
+                    companyEl.style.display = 'none';
+                }
                 
                 if (interview.interview_date) {
                     const date = new Date(interview.interview_date);
@@ -1929,6 +1962,30 @@
                 document.getElementById('interviews-section').classList.add('hidden');
                 document.getElementById('interview-detail').classList.remove('hidden');
                 
+                // Show/hide add topic form based on whether topics exist
+                const addTopicSection = document.getElementById('add-topic-section');
+                const topicForm = document.getElementById('topic-form');
+                const toggleAddTopicBtn = document.getElementById('toggle-add-topic-btn');
+                const hasTopics = interview.topics && interview.topics.length > 0;
+                
+                if (hasTopics) {
+                    // Hide the form by default when topics exist
+                    if (topicForm) {
+                        topicForm.style.display = 'none';
+                    }
+                    if (toggleAddTopicBtn) {
+                        toggleAddTopicBtn.style.display = 'inline-block';
+                    }
+                } else {
+                    // Show the form when no topics exist
+                    if (topicForm) {
+                        topicForm.style.display = 'block';
+                    }
+                    if (toggleAddTopicBtn) {
+                        toggleAddTopicBtn.style.display = 'none';
+                    }
+                }
+                
                 // Update view mode button state
                 const viewModeBtn = document.getElementById('view-mode-btn');
                 const exportBtn = document.getElementById('export-pdf-btn');
@@ -1971,6 +2028,22 @@
             document.getElementById('interview-detail').classList.add('hidden');
             currentInterviewId = null;
             loadInterviews();
+        }
+
+        function toggleAddTopicForm() {
+            const topicForm = document.getElementById('topic-form');
+            const toggleBtn = document.getElementById('toggle-add-topic-btn');
+            
+            if (topicForm && toggleBtn) {
+                const isVisible = topicForm.style.display !== 'none';
+                if (isVisible) {
+                    topicForm.style.display = 'none';
+                    toggleBtn.textContent = 'Show Form';
+                } else {
+                    topicForm.style.display = 'block';
+                    toggleBtn.textContent = 'Hide Form';
+                }
+            }
         }
 
         function toggleTreeNode(nodeId) {
@@ -2114,17 +2187,21 @@
 
                 // Create PDF content
                 const pdfContent = document.createElement('div');
-                pdfContent.style.padding = '40px';
+                pdfContent.style.padding = '20px 40px';
                 pdfContent.style.fontFamily = 'Inter, sans-serif';
                 pdfContent.style.color = '#1a1a1a';
                 pdfContent.style.maxWidth = '800px';
-                pdfContent.style.margin = '0 auto';
+                pdfContent.style.margin = '0';
+                pdfContent.style.boxSizing = 'border-box';
 
                 // Header
+                const company = interview.company && interview.company.trim() && interview.company !== 'Generic Company (US)' 
+                    ? interview.company 
+                    : 'General';
                 pdfContent.innerHTML = `
-                    <div style="margin-bottom: 30px; border-bottom: 2px solid #e0e0e0; padding-bottom: 20px;">
-                        <h1 style="font-size: 24px; font-weight: 600; margin-bottom: 8px; color: #1a1a1a;">${interview.position || 'Study Material'}</h1>
-                        <div style="font-size: 14px; color: #666;">${interview.company || 'Generic Company (US)'}</div>
+                    <div style="margin-top: 0; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0; padding-bottom: 15px;">
+                        <h1 style="font-size: 24px; font-weight: 600; margin-top: 0; margin-bottom: 8px; color: #1a1a1a;">${company}</h1>
+                        ${interview.position && interview.position.trim() ? `<div style="font-size: 14px; color: #666;">${interview.position}</div>` : ''}
                         ${interview.interview_date ? `
                             <div style="font-size: 12px; color: #888; margin-top: 4px;">
                                 Interview Date: ${new Date(interview.interview_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
@@ -2133,36 +2210,226 @@
                     </div>
                 `;
 
-                // Get checklist HTML
-                const checklistContainer = document.getElementById('topics-list');
-                if (!checklistContainer || viewMode !== 'checklist') {
-                    alert('Please switch to checklist view first');
+                // Build checklist from interview data (avoid duplicates from cloning)
+                if (!interview.topics || interview.topics.length === 0) {
+                    alert('No topics to export');
                     return;
                 }
 
-                // Clone the checklist for PDF
-                const checklistClone = checklistContainer.cloneNode(true);
-                checklistClone.style.padding = '0';
-                checklistClone.style.margin = '0';
-                
-                // Style for PDF
-                const checklistItems = checklistClone.querySelectorAll('.checklist-item');
-                checklistItems.forEach(item => {
-                    item.style.marginBottom = '6px';
-                    item.style.padding = '10px';
-                    item.style.border = '1px solid #e0e0e0';
-                    item.style.borderRadius = '4px';
-                    item.style.cursor = 'default';
+                // Build hierarchical structure same as renderChecklistView
+                const hierarchicalStructure = {};
+                const uncategorized = [];
+                const categoryColors = [
+                    '#FF6B9D', '#4ECDC4', '#95E1D3', '#F38181', '#AA96DA',
+                    '#FCBAD3', '#A8E6CF', '#FFD3A5', '#C7CEEA', '#FFB6C1'
+                ];
+
+                // Deduplicate topics by ID to avoid showing the same topic twice
+                const seenTopicIds = new Set();
+                const uniqueTopics = interview.topics.filter(topic => {
+                    const topicId = topic.id;
+                    if (seenTopicIds.has(topicId)) {
+                        return false; // Skip duplicate
+                    }
+                    seenTopicIds.add(topicId);
+                    return true;
                 });
 
-                pdfContent.appendChild(checklistClone);
+                uniqueTopics.forEach(topic => {
+                    const category = topic.category_name || null;
+                    if (category && category.includes(' > ')) {
+                        const parts = category.split(' > ');
+                        const mainCategory = parts[0];
+                        const subcategory = parts.slice(1).join(' > ');
+                        
+                        if (!hierarchicalStructure[mainCategory]) {
+                            hierarchicalStructure[mainCategory] = {};
+                        }
+                        if (!hierarchicalStructure[mainCategory][subcategory]) {
+                            hierarchicalStructure[mainCategory][subcategory] = [];
+                        }
+                        hierarchicalStructure[mainCategory][subcategory].push(topic);
+                    } else if (category) {
+                        if (!hierarchicalStructure[category]) {
+                            hierarchicalStructure[category] = {};
+                        }
+                        if (!hierarchicalStructure[category]['_default']) {
+                            hierarchicalStructure[category]['_default'] = [];
+                        }
+                        hierarchicalStructure[category]['_default'].push(topic);
+                    } else {
+                        uncategorized.push(topic);
+                    }
+                });
+
+                // Get category order
+                let categoryOrder = [];
+                try {
+                    const orderResponse = await fetch('/api/topics');
+                    if (orderResponse.ok) {
+                        const orderData = await orderResponse.json();
+                        if (orderData.categories) {
+                            categoryOrder = orderData.categories.map(cat => cat.name);
+                        }
+                    }
+                } catch (err) {
+                    // Silently fail
+                }
+
+                const sortedCategories = categoryOrder.length > 0
+                    ? categoryOrder.concat(Object.keys(hierarchicalStructure).filter(cat => !categoryOrder.includes(cat)))
+                    : Object.keys(hierarchicalStructure);
+
+                // Build PDF checklist HTML
+                let checklistHtml = '<ul style="list-style: none; padding: 0; margin: 0;">';
+                const renderedTopicIds = new Set(); // Track which topics we've already rendered
+
+                sortedCategories.forEach((mainCategory, mainIndex) => {
+                    const categoryData = hierarchicalStructure[mainCategory];
+                    const color = categoryColors[mainIndex % categoryColors.length];
+                    
+                    // Filter out already-rendered topics to avoid duplicates
+                    const filteredCategoryData = {};
+                    Object.keys(categoryData).forEach(subcategory => {
+                        const filteredTopics = categoryData[subcategory].filter(topic => {
+                            if (renderedTopicIds.has(topic.id)) {
+                                return false; // Skip if already rendered
+                            }
+                            renderedTopicIds.add(topic.id);
+                            return true;
+                        });
+                        if (filteredTopics.length > 0) {
+                            filteredCategoryData[subcategory] = filteredTopics;
+                        }
+                    });
+                    
+                    let mainCategoryTotal = 0;
+                    let mainCategoryCompleted = 0;
+                    Object.values(filteredCategoryData).forEach(subcategoryTopics => {
+                        mainCategoryTotal += subcategoryTopics.length;
+                        mainCategoryCompleted += subcategoryTopics.filter(t => t.status === 'completed').length;
+                    });
+                    
+                    // Skip category if no topics after deduplication
+                    if (mainCategoryTotal === 0) {
+                        return;
+                    }
+                    
+                    // Category header
+                    checklistHtml += `
+                        <li style="margin-top: ${mainIndex > 0 ? '20px' : '0'}; margin-bottom: 10px; padding: 10px 14px; background: ${color}15; border-left: 3px solid ${color}; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="font-weight: 600; font-size: 0.9rem; color: #1a1a1a;">${mainCategory}</div>
+                                <div style="font-size: 0.7rem; color: #666;">${mainCategoryCompleted}/${mainCategoryTotal}</div>
+                            </div>
+                        </li>
+                    `;
+                    
+                    const subcategories = Object.keys(filteredCategoryData);
+                    subcategories.forEach((subcategory) => {
+                        const subcategoryTopics = filteredCategoryData[subcategory];
+                        const subcategoryCompleted = subcategoryTopics.filter(t => t.status === 'completed').length;
+                        const subcategoryTotal = subcategoryTopics.length;
+                        
+                        if (subcategory !== '_default' && subcategory.trim()) {
+                            checklistHtml += `
+                                <li style="margin-top: 6px; margin-bottom: 4px; padding: 6px 14px 6px 28px; background: ${color}08; border-left: 2px solid ${color}80; border-radius: 4px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="font-weight: 500; font-size: 0.75rem; color: #666;">${subcategory}</div>
+                                        <div style="font-size: 0.65rem; color: #999;">${subcategoryCompleted}/${subcategoryTotal}</div>
+                                    </div>
+                                </li>
+                            `;
+                        }
+                        
+                        // Sort topics
+                        const priorityOrder = { 'high': 3, 'medium': 2, 'low': 1 };
+                        subcategoryTopics.sort((a, b) => {
+                            const priorityDiff = (priorityOrder[(b.priority || 'medium').toLowerCase()] || 2) - (priorityOrder[(a.priority || 'medium').toLowerCase()] || 2);
+                            if (priorityDiff !== 0) return priorityDiff;
+                            if (a.status === 'completed' && b.status !== 'completed') return 1;
+                            if (a.status !== 'completed' && b.status === 'completed') return -1;
+                            return 0;
+                        });
+                        
+                        subcategoryTopics.forEach(topic => {
+                            const isCompleted = topic.status === 'completed';
+                            const priority = (topic.priority || 'medium').toLowerCase();
+                            const isHighPriority = priority === 'high';
+                            const indent = subcategory !== '_default' && subcategory.trim() ? '28px' : '14px';
+                            const borderColor = isCompleted ? '#4ade80' : color;
+                            
+                            checklistHtml += `
+                                <li style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; padding-left: ${indent}; margin-bottom: 4px; border-left: 3px solid ${borderColor}; border-radius: 4px; border: 1px solid #e0e0e0;">
+                                    <div style="width: 18px; height: 18px; border: 2px solid #ddd; border-radius: 4px; ${isCompleted ? 'background: #4ade80; border-color: #4ade80;' : 'background: white;'} display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                        ${isCompleted ? '<span style="color: white; font-size: 12px; font-weight: bold;">✓</span>' : ''}
+                                    </div>
+                                    <div style="flex: 1; font-size: 0.85rem; color: ${isCompleted ? '#999' : '#1a1a1a'}; ${isCompleted ? 'text-decoration: line-through;' : ''}">
+                                        ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
+                                        ${isHighPriority && !isCompleted ? ' <span style="font-size: 0.6rem; padding: 2px 4px; background: rgba(255, 140, 66, 0.1); color: #ff8c42; border-radius: 3px;">HIGH</span>' : ''}
+                                    </div>
+                                </li>
+                            `;
+                        });
+                    });
+                });
+
+                // Add uncategorized (filter out already rendered)
+                const uniqueUncategorized = uncategorized.filter(topic => {
+                    if (renderedTopicIds.has(topic.id)) {
+                        return false; // Skip if already rendered
+                    }
+                    renderedTopicIds.add(topic.id);
+                    return true;
+                });
+                
+                if (uniqueUncategorized.length > 0) {
+                    const uncatCompleted = uniqueUncategorized.filter(t => t.status === 'completed').length;
+                    checklistHtml += `
+                        <li style="margin-top: ${sortedCategories.length > 0 ? '20px' : '0'}; margin-bottom: 10px; padding: 10px 14px; background: #f5f5f5; border-left: 3px solid #888; border-radius: 6px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="font-weight: 600; font-size: 0.9rem; color: #1a1a1a;">Other</div>
+                                <div style="font-size: 0.7rem; color: #666;">${uncatCompleted}/${uniqueUncategorized.length}</div>
+                            </div>
+                        </li>
+                    `;
+                    
+                    uniqueUncategorized.forEach(topic => {
+                        const isCompleted = topic.status === 'completed';
+                        const priority = (topic.priority || 'medium').toLowerCase();
+                        const isHighPriority = priority === 'high';
+                        
+                        checklistHtml += `
+                            <li style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; padding-left: 14px; margin-bottom: 4px; border-left: 3px solid ${isCompleted ? '#4ade80' : 'transparent'}; border-radius: 4px; border: 1px solid #e0e0e0;">
+                                <div style="width: 18px; height: 18px; border: 2px solid #ddd; border-radius: 4px; ${isCompleted ? 'background: #4ade80; border-color: #4ade80;' : 'background: white;'} display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                    ${isCompleted ? '<span style="color: white; font-size: 12px; font-weight: bold;">✓</span>' : ''}
+                                </div>
+                                <div style="flex: 1; font-size: 0.85rem; color: ${isCompleted ? '#999' : '#1a1a1a'}; ${isCompleted ? 'text-decoration: line-through;' : ''}">
+                                    ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
+                                    ${isHighPriority && !isCompleted ? ' <span style="font-size: 0.6rem; padding: 2px 4px; background: rgba(255, 140, 66, 0.1); color: #ff8c42; border-radius: 3px;">HIGH</span>' : ''}
+                                </div>
+                            </li>
+                        `;
+                    });
+                }
+
+                checklistHtml += '</ul>';
+                
+                const checklistDiv = document.createElement('div');
+                checklistDiv.innerHTML = checklistHtml;
+                pdfContent.appendChild(checklistDiv);
 
                 // Generate PDF
                 const opt = {
-                    margin: [20, 20, 20, 20],
+                    margin: [10, 20, 20, 20], // Reduced top margin to 10mm
                     filename: `${interview.position || 'Study_Material'}_Checklist.pdf`,
                     image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2, useCORS: true },
+                    html2canvas: { 
+                        scale: 2, 
+                        useCORS: true,
+                        logging: false,
+                        letterRendering: true
+                    },
                     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
                 };
 
