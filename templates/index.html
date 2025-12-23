@@ -2319,8 +2319,126 @@
             container.innerHTML = html;
         }
 
+        function updateChecklistProgress() {
+            // Update overall progress bar if in checklist view
+            const progressBar = document.querySelector('.checklist-progress');
+            if (progressBar) {
+                const allCheckboxes = document.querySelectorAll('.checklist-checkbox');
+                const checkedCount = Array.from(allCheckboxes).filter(cb => cb.classList.contains('checked')).length;
+                const totalCount = allCheckboxes.length;
+                const progressPercent = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
+                
+                const progressFill = progressBar.querySelector('div[style*="width"]');
+                const progressText = progressBar.querySelector('div:last-child');
+                if (progressFill) {
+                    progressFill.style.width = `${progressPercent}%`;
+                }
+                if (progressText) {
+                    progressText.textContent = `${checkedCount} / ${totalCount} completed`;
+                }
+            }
+            
+            // Update all category progress headers
+            document.querySelectorAll('.checklist-category-header').forEach(categoryHeader => {
+                const categoryItems = Array.from(categoryHeader.parentElement.querySelectorAll('.checklist-item'));
+                const categoryChecked = categoryItems.filter(item => item.querySelector('.checklist-checkbox.checked')).length;
+                const categoryTotal = categoryItems.length;
+                const categoryCount = categoryHeader.querySelector('div:last-child');
+                if (categoryCount) {
+                    categoryCount.textContent = `${categoryChecked}/${categoryTotal}`;
+                }
+            });
+        }
+
         async function toggleTopicStatus(topicId, currentStatus) {
-            const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
+            // Find the topic element first to read current state from DOM
+            // Find the clicked element - could be a button (tree view) or list item (checklist view)
+            const clickedElement = document.querySelector(`[onclick*="toggleTopicStatus(${topicId}"]`);
+            let topicItem = null;
+            let doneButton = null;
+            
+            if (clickedElement) {
+                // Check if it's a button (tree view) or list item (checklist view)
+                if (clickedElement.tagName === 'BUTTON') {
+                    doneButton = clickedElement;
+                    topicItem = doneButton.closest('.topic-item, .checklist-item');
+                } else if (clickedElement.classList.contains('checklist-item')) {
+                    // In checklist view, the list item itself is clickable
+                    topicItem = clickedElement;
+                } else {
+                    topicItem = clickedElement.closest('.topic-item, .checklist-item');
+                }
+            }
+            
+            // Fallback: find by data attribute or other means
+            if (!topicItem) {
+                topicItem = document.querySelector(`[data-topic-id="${topicId}"]`)?.closest('.topic-item, .checklist-item');
+            }
+            
+            // If we still don't have doneButton, try to find it within topicItem (for tree view)
+            if (!doneButton && topicItem) {
+                doneButton = topicItem.querySelector('button[onclick*="toggleTopicStatus"]');
+            }
+            
+            const checkbox = topicItem?.querySelector('.checklist-checkbox');
+            const nameElement = topicItem?.querySelector('.checklist-item-name, .topic-name');
+            const statusTag = topicItem?.querySelector('.tag-status');
+            
+            // Read current status from DOM (more reliable than parameter after first click)
+            let actualCurrentStatus = currentStatus;
+            if (checkbox) {
+                actualCurrentStatus = checkbox.classList.contains('checked') ? 'completed' : 'pending';
+            } else if (statusTag) {
+                actualCurrentStatus = statusTag.textContent.trim();
+            }
+            
+            const newStatus = actualCurrentStatus === 'completed' ? 'pending' : 'completed';
+            
+            // Optimistically update the UI
+            if (checkbox) {
+                if (newStatus === 'completed') {
+                    checkbox.classList.add('checked');
+                } else {
+                    checkbox.classList.remove('checked');
+                }
+            }
+            
+            if (nameElement) {
+                if (newStatus === 'completed') {
+                    nameElement.classList.add('completed');
+                } else {
+                    nameElement.classList.remove('completed');
+                }
+            }
+            
+            if (statusTag) {
+                statusTag.textContent = newStatus;
+                statusTag.className = `tag tag-status tag-${newStatus}`;
+            }
+            
+            // Only update button text if it's actually a button (tree view)
+            if (doneButton && doneButton.tagName === 'BUTTON') {
+                doneButton.textContent = newStatus === 'completed' ? 'Undo' : 'Done';
+            }
+            
+            // Update border color for checklist items
+            if (topicItem && topicItem.classList.contains('checklist-item')) {
+                if (newStatus === 'completed') {
+                    topicItem.style.borderLeftColor = 'var(--success)';
+                } else {
+                    const priority = topicItem.querySelector('.tag-priority-high');
+                    topicItem.style.borderLeftColor = priority ? topicItem.style.borderLeftColor || 'transparent' : 'transparent';
+                }
+                
+                // Update progress bars
+                updateChecklistProgress();
+            }
+            
+            // Update onclick attribute with new status so next click works correctly
+            if (clickedElement) {
+                clickedElement.setAttribute('onclick', `toggleTopicStatus(${topicId}, '${newStatus}')`);
+            }
+            
             try {
                 const response = await fetch(`/api/topics/${topicId}`, {
                     method: 'PUT',
@@ -2328,15 +2446,93 @@
                     body: JSON.stringify({ status: newStatus })
                 });
 
-                if (response.ok) {
-                    // Reload the interview detail to show updated status
-                    loadInterviewDetail(currentInterviewId);
-                } else {
+                if (!response.ok) {
+                    // Revert UI changes on error - use actualCurrentStatus (state before our change)
+                    if (checkbox) {
+                        if (actualCurrentStatus === 'completed') {
+                            checkbox.classList.add('checked');
+                        } else {
+                            checkbox.classList.remove('checked');
+                        }
+                    }
+                    if (nameElement) {
+                        if (actualCurrentStatus === 'completed') {
+                            nameElement.classList.add('completed');
+                        } else {
+                            nameElement.classList.remove('completed');
+                        }
+                    }
+                    if (statusTag) {
+                        statusTag.textContent = actualCurrentStatus;
+                        statusTag.className = `tag tag-status tag-${actualCurrentStatus}`;
+                    }
+                    // Only update button text if it's actually a button (tree view)
+                    if (doneButton && doneButton.tagName === 'BUTTON') {
+                        doneButton.textContent = actualCurrentStatus === 'completed' ? 'Undo' : 'Done';
+                    }
+                    
+                    // Revert border color for checklist items
+                    if (topicItem && topicItem.classList.contains('checklist-item')) {
+                        if (actualCurrentStatus === 'completed') {
+                            topicItem.style.borderLeftColor = 'var(--success)';
+                        } else {
+                            const priority = topicItem.querySelector('.tag-priority-high');
+                            topicItem.style.borderLeftColor = priority ? topicItem.style.borderLeftColor || 'transparent' : 'transparent';
+                        }
+                        updateChecklistProgress();
+                    }
+                    
+                    // Revert onclick attribute
+                    if (clickedElement) {
+                        clickedElement.setAttribute('onclick', `toggleTopicStatus(${topicId}, '${actualCurrentStatus}')`);
+                    }
+                    
                     const data = await response.json();
                     console.error('Error updating topic:', data);
                     alert('Failed to update topic status');
                 }
+                // Success - UI already updated, no need to reload
             } catch (error) {
+                // Revert UI changes on error - use actualCurrentStatus (state before our change)
+                if (checkbox) {
+                    if (actualCurrentStatus === 'completed') {
+                        checkbox.classList.add('checked');
+                    } else {
+                        checkbox.classList.remove('checked');
+                    }
+                }
+                if (nameElement) {
+                    if (actualCurrentStatus === 'completed') {
+                        nameElement.classList.add('completed');
+                    } else {
+                        nameElement.classList.remove('completed');
+                    }
+                }
+                if (statusTag) {
+                    statusTag.textContent = actualCurrentStatus;
+                    statusTag.className = `tag tag-status tag-${actualCurrentStatus}`;
+                }
+                // Only update button text if it's actually a button (tree view)
+                if (doneButton && doneButton.tagName === 'BUTTON') {
+                    doneButton.textContent = actualCurrentStatus === 'completed' ? 'Undo' : 'Done';
+                }
+                
+                // Revert border color for checklist items
+                if (topicItem && topicItem.classList.contains('checklist-item')) {
+                    if (actualCurrentStatus === 'completed') {
+                        topicItem.style.borderLeftColor = 'var(--success)';
+                    } else {
+                        const priority = topicItem.querySelector('.tag-priority-high');
+                        topicItem.style.borderLeftColor = priority ? topicItem.style.borderLeftColor || 'transparent' : 'transparent';
+                    }
+                    updateChecklistProgress();
+                }
+                
+                // Revert onclick attribute
+                if (clickedElement) {
+                    clickedElement.setAttribute('onclick', `toggleTopicStatus(${topicId}, '${actualCurrentStatus}')`);
+                }
+                
                 console.error('Error updating topic:', error);
                 alert('Failed to update topic status. Please try again.');
             }
@@ -2345,13 +2541,27 @@
         async function deleteTopic(topicId) {
             if (!confirm('Delete this topic?')) return;
 
+            // Store the currently active tab before reloading
+            let activeTabId = null;
+            const activeTab = document.querySelector('.topic-tab.active');
+            if (activeTab) {
+                activeTabId = activeTab.id.replace('tab-', '');
+            }
+
             try {
                 const response = await fetch(`/api/topics/${topicId}`, {
                     method: 'DELETE'
                 });
 
                 if (response.ok) {
-                    loadInterviewDetail(currentInterviewId);
+                    await loadInterviewDetail(currentInterviewId);
+                    
+                    // Restore the previously active tab
+                    if (activeTabId) {
+                        setTimeout(() => {
+                            window.switchTopicTab(activeTabId);
+                        }, 100);
+                    }
                 }
             } catch (error) {
                 console.error('Error deleting topic:', error);
@@ -2376,6 +2586,13 @@
             btn.disabled = true;
             btn.textContent = '⏳';
 
+            // Store the currently active tab before reloading
+            let activeTabId = null;
+            const activeTab = document.querySelector('.topic-tab.active');
+            if (activeTab) {
+                activeTabId = activeTab.id.replace('tab-', '');
+            }
+
             try {
                 const response = await fetch(`/api/topics/${topicId}/ai-guidance`, {
                     method: 'POST'
@@ -2388,7 +2605,14 @@
                     modalContent.innerHTML = formatAIGuidance(data.ai_guidance);
                     btn.textContent = '🔄';
                     // Reload interview to get updated topic data
-                    loadInterviewDetail(currentInterviewId);
+                    await loadInterviewDetail(currentInterviewId);
+                    
+                    // Restore the previously active tab
+                    if (activeTabId) {
+                        setTimeout(() => {
+                            window.switchTopicTab(activeTabId);
+                        }, 100);
+                    }
                 } else {
                     modalContent.innerHTML = `<div style="color: var(--accent); padding: 20px; text-align: center;">${data.error || 'Failed to generate AI guidance'}</div>`;
                     btn.textContent = '✨';
