@@ -49,6 +49,24 @@ pip install -r requirements.txt
    
    The AI guidance feature will automatically use whichever API key is available (Groq is tried first)
 
+4. (Optional) Set up Admin Authentication for `/admin` page:
+   
+   **Google OAuth (Required for production deployment)**
+   - Get OAuth credentials from [Google Cloud Console](https://console.cloud.google.com/)
+   - Create OAuth 2.0 Client ID credentials
+   - Add authorized redirect URI: `https://your-domain.com/auth/callback` (or `http://localhost:5006/auth/callback` for local)
+   
+   Add to your `.env` file:
+   ```bash
+   # Admin Authentication
+   GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=your-google-client-secret
+   ADMIN_EMAILS=your-email@example.com,another-admin@example.com
+   SECRET_KEY=your-secret-key-for-sessions
+   ```
+   
+   **Note:** For local development, authentication is bypassed when running on localhost. For production (Railway), authentication is required.
+
 4. Run the application:
 ```bash
 python app.py
@@ -66,4 +84,42 @@ python app.py
 6. **Track Progress**: Mark topics as completed as you study them
 
 The study plan automatically distributes your topics across the days leading up to your interview, prioritizing high-priority topics first.
+
+## Railway Deployment
+
+This application is configured for deployment on Railway. The following files are required:
+
+- **Procfile**: Defines how Railway runs the application (using gunicorn)
+- **runtime.txt**: Specifies Python version (3.12.0)
+- **requirements.txt**: Includes gunicorn for production server
+
+### Railway Setup Steps
+
+1. **Create a Railway Project**:
+   - Connect your GitHub repository to Railway
+   - Railway will automatically detect the Flask app
+
+2. **Set Environment Variables** in Railway dashboard:
+   ```
+   GROQ_API_KEY=your-groq-api-key
+   GOOGLE_CLIENT_ID=your-google-client-id
+   GOOGLE_CLIENT_SECRET=your-google-client-secret
+   ADMIN_EMAILS=your-email@example.com
+   SECRET_KEY=your-secret-key-for-sessions
+   RAILWAY_ENVIRONMENT=1
+   ```
+
+3. **Configure OAuth Redirect URI**:
+   - In Google Cloud Console, add your Railway domain as an authorized redirect URI:
+     `https://your-app-name.railway.app/auth/callback`
+
+4. **Deploy**:
+   - Railway will automatically deploy on git push
+   - The app will be available at `https://your-app-name.railway.app`
+
+### Local vs Production
+
+- **Local Development**: Runs on port 5006 with debug mode enabled
+- **Railway Production**: Uses gunicorn with 2 workers, listens on Railway's PORT environment variable
+- **Authentication**: Bypassed on localhost, required on Railway
 

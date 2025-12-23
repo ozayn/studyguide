@@ -47,6 +47,63 @@
             margin-bottom: 32px;
         }
 
+        .back-link {
+            color: var(--text);
+            text-decoration: none;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 16px;
+            transition: opacity 0.2s;
+        }
+
+        .back-link:hover {
+            opacity: 0.7;
+        }
+
+        .user-info {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+
+        .user-name {
+            color: var(--text);
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .auth-status {
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+        }
+
+        .auth-status.local {
+            color: #f59e0b;
+        }
+
+        .auth-status.authenticated {
+            color: var(--success);
+        }
+
+        .auth-status.required {
+            color: var(--danger);
+        }
+
+        .logout-link {
+            color: var(--text-light);
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: color 0.2s;
+        }
+
+        .logout-link:hover {
+            color: var(--text);
+        }
+
         h1 {
             font-size: 2rem;
             font-weight: 600;
@@ -317,8 +374,35 @@
         <a href="/" class="back-link">← Back to Study Guide</a>
         
         <div class="header">
-            <h1>Topics Admin</h1>
-            <button class="btn btn-primary" onclick="saveAll()">💾 Save All Changes</button>
+            <div style="display: flex; align-items: center; gap: 24px;">
+                <div>
+                    <h1>Topics Admin</h1>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 24px;">
+                <button class="btn btn-primary" onclick="saveAll()">💾 Save All Changes</button>
+                <div class="user-info">
+                    <div class="user-name">
+                        {% if session and session.get('user_name') %}
+                            {{ session.user_name }}
+                        {% elif session and session.get('user_email') %}
+                            {{ session.user_email }}
+                        {% else %}
+                            Local Development
+                        {% endif %}
+                    </div>
+                    {% if request.host.startswith('localhost') or request.host.startswith('127.0.0.1') or request.host.startswith('10.') %}
+                    <div class="auth-status local">Local Development</div>
+                    {% elif session and session.get('user_email') %}
+                    <div class="auth-status authenticated">Authenticated</div>
+                    {% else %}
+                    <div class="auth-status required">Authentication Required</div>
+                    {% endif %}
+                    {% if session and session.get('user_email') %}
+                    <a href="/auth/logout" class="logout-link">Logout</a>
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
         <div id="message"></div>

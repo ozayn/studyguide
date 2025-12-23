@@ -1,8 +1,25 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session, redirect
 from datetime import datetime, timedelta
+from functools import wraps
 import sqlite3
 import os
 import json
+
+# Google OAuth imports
+try:
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import Flow
+    from googleapiclient.discovery import build
+    
+    # Configure OAuth for Railway's proxy environment
+    if 'RAILWAY_ENVIRONMENT' in os.environ:
+        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+    
+    GOOGLE_OAUTH_AVAILABLE = True
+except ImportError:
+    print("⚠️  Warning: Google OAuth libraries not found. Admin authentication will be disabled.")
+    GOOGLE_OAUTH_AVAILABLE = False
 
 # Load environment variables from .env file
 try:
@@ -21,9 +38,36 @@ except (ImportError, Exception):
     genai = None
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here-change-in-production')
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('RAILWAY_ENVIRONMENT') is not None
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 DATABASE = 'interview_prep.db'
+
+# Google OAuth Configuration
+if GOOGLE_OAUTH_AVAILABLE:
+    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+    GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
+    ADMIN_EMAILS = os.getenv('ADMIN_EMAILS', '').split(',')
+    
+    # OAuth scopes
+    SCOPES = ['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']
+    
+    # OAuth flow configuration
+    CLIENT_CONFIG = {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": []
+        }
+    }
+else:
+    GOOGLE_CLIENT_ID = None
+    GOOGLE_CLIENT_SECRET = None
+    ADMIN_EMAILS = []
 
 def get_db():
     conn = sqlite3.connect(DATABASE)
@@ -84,9 +128,146 @@ def init_db():
 def index():
     return render_template('index.html')
 
+# OAuth Helper Functions
+def is_admin_email(email):
+    """Check if email is in admin whitelist"""
+    if not GOOGLE_OAUTH_AVAILABLE or not ADMIN_EMAILS:
+        return True  # Allow access if OAuth not configured
+    return email.strip().lower() in [admin.strip().lower() for admin in ADMIN_EMAILS if admin.strip()]
+
+def login_required(f):
+    """Decorator to require Google OAuth login for admin routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # For local development only, bypass OAuth if running on localhost
+        is_local = (request.host.startswith('localhost') or 
+                   request.host.startswith('127.0.0.1') or
+                   request.host.startswith('10.'))
+        
+        if is_local:
+            print("DEBUG: Local development detected, bypassing OAuth")
+            return f(*args, **kwargs)
+        
+        if not GOOGLE_OAUTH_AVAILABLE:
+            return f(*args, **kwargs)  # Allow access if OAuth not configured
+        
+        # Check if user is logged in
+        if ('user_email' not in session or 
+            not session.get('user_email') or 
+            'credentials' not in session):
+            print("DEBUG: No valid session found, redirecting to login")
+            return redirect('/auth/login')
+        
+        # Check if user is admin
+        if not is_admin_email(session['user_email']):
+            return jsonify({'error': f'Access denied for {session["user_email"]}. Contact administrator.'}), 403
+        
+        print(f"DEBUG: Authenticated user: {session['user_email']}")
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/auth/login')
+def auth_login():
+    """Initiate Google OAuth login"""
+    if not GOOGLE_OAUTH_AVAILABLE:
+        return redirect('/admin')  # Skip auth if not configured
+    
+    # For local development, redirect directly to admin
+    is_local = (request.host.startswith('localhost') or 
+               request.host.startswith('127.0.0.1') or
+               request.host.startswith('10.'))
+    
+    if is_local:
+        return redirect('/admin')
+    
+    try:
+        # Create flow with proper configuration
+        flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
+        
+        # Use custom domain for OAuth callback (adjust for your domain)
+        if 'railway.app' in request.host:
+            # Replace with your actual domain when deployed
+            flow.redirect_uri = request.url_root + 'auth/callback'
+        else:
+            flow.redirect_uri = request.url_root + 'auth/callback'
+        
+        authorization_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true'
+        )
+        
+        session['state'] = state
+        return redirect(authorization_url)
+    except Exception as e:
+        print(f"OAuth login error: {e}")
+        return f"OAuth error: {e}", 500
+
+@app.route('/auth/callback')
+def auth_callback():
+    """Handle Google OAuth callback"""
+    if not GOOGLE_OAUTH_AVAILABLE:
+        return redirect('/admin')
+    
+    try:
+        # Create flow
+        flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
+        
+        # Use custom domain for OAuth callback (adjust for your domain)
+        if 'railway.app' in request.host:
+            flow.redirect_uri = request.url_root + 'auth/callback'
+        else:
+            flow.redirect_uri = request.url_root + 'auth/callback'
+        
+        # Handle Railway proxy HTTPS issue
+        authorization_response = request.url
+        if 'railway.app' in request.host:
+            authorization_response = authorization_response.replace('http://', 'https://')
+        
+        flow.fetch_token(authorization_response=authorization_response)
+        
+        credentials = flow.credentials
+        service = build('oauth2', 'v2', credentials=credentials)
+        user_info = service.userinfo().get().execute()
+        
+        email = user_info.get('email')
+        name = user_info.get('name')
+        
+        if not is_admin_email(email):
+            return f"Access denied for {email}. Contact administrator.", 403
+        
+        # Store user info in session
+        session['user_email'] = email
+        session['user_name'] = name
+        session['credentials'] = credentials.to_json()
+        
+        return redirect('/admin')
+        
+    except Exception as e:
+        print(f"OAuth callback error: {e}")
+        return f"OAuth callback error: {e}", 500
+
+@app.route('/auth/logout')
+def auth_logout():
+    """Logout user"""
+    # Clear all session data
+    session.clear()
+    
+    if 'credentials' in session:
+        del session['credentials']
+    if 'user_email' in session:
+        del session['user_email']
+    if 'user_name' in session:
+        del session['user_name']
+    if 'state' in session:
+        del session['state']
+    
+    session.permanent = False
+    return redirect('/')
+
 @app.route('/admin')
+@login_required
 def admin():
-    return render_template('admin.html')
+    return render_template('admin.html', session=session)
 
 @app.route('/favicon.ico')
 def favicon():
@@ -106,6 +287,7 @@ def get_topics_config():
         return jsonify({'error': 'Invalid JSON file'}), 500
 
 @app.route('/api/topics', methods=['POST'])
+@login_required
 def save_topics_config():
     """Save topics configuration to JSON file"""
     try:
@@ -733,5 +915,8 @@ def generate_study_plan(topics, days_until):
 
 if __name__ == '__main__':
     init_db()
-    app.run(debug=True, port=5006)
+    # Use PORT from environment variable (Railway) or default to 5006 for local development
+    port = int(os.getenv('PORT', 5006))
+    debug = os.getenv('RAILWAY_ENVIRONMENT') is None  # Only debug mode in local development
+    app.run(debug=debug, host='0.0.0.0', port=port)
 
