@@ -97,6 +97,42 @@ def get_db():
         conn.row_factory = sqlite3.Row
         return conn
 
+def db_execute(conn, query, params=None):
+    """Execute a query - converts ? to %s for PostgreSQL and returns cursor-like object"""
+    if USE_POSTGRESQL:
+        # Convert SQLite ? placeholders to PostgreSQL %s
+        if params:
+            query = query.replace('?', '%s')
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(query, params or ())
+        return cursor
+    else:
+        return conn.execute(query, params or ())
+
+def db_fetchone(cursor):
+    """Fetch one row - works with both SQLite and PostgreSQL"""
+    if USE_POSTGRESQL:
+        return cursor.fetchone()
+    else:
+        return cursor.fetchone()
+
+def db_fetchall(cursor):
+    """Fetch all rows - works with both SQLite and PostgreSQL"""
+    if USE_POSTGRESQL:
+        return cursor.fetchall()
+    else:
+        return cursor.fetchall()
+
+def db_lastrowid(cursor, conn):
+    """Get last inserted row ID - works with both SQLite and PostgreSQL"""
+    if USE_POSTGRESQL:
+        # For PostgreSQL with RETURNING clause, fetch from cursor
+        if cursor.rowcount > 0:
+            result = cursor.fetchone()
+            return result['id'] if result else None
+        return None
+    else:
+        return cursor.lastrowid
 
 def init_db():
     """Initialize database tables - supports both SQLite and PostgreSQL"""
