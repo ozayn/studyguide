@@ -949,7 +949,7 @@ def generate_common_topics(position):
         # Fallback: return topics from JSON file, or hardcoded if JSON is empty
         if json_topics:
             print("Returning topics from topics.json (no API key)")
-            return json_topics[:20]  # Return up to 20 topics from JSON
+            return json_topics  # Return all topics from JSON
         
         # Fallback to hardcoded topics if JSON is empty
         topics_by_category = {}
