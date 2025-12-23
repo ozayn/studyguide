@@ -701,6 +701,22 @@
             margin-bottom: 0;
         }
 
+        .ai-guidance h2,
+        .ai-guidance h3 {
+            margin: 18px 0 10px 0;
+            font-weight: 650;
+            letter-spacing: -0.01em;
+        }
+
+        .ai-guidance h2 {
+            font-size: 1.05rem;
+        }
+
+        .ai-guidance h3 {
+            font-size: 0.98rem;
+            color: var(--text);
+        }
+
         .ai-guidance strong {
             color: var(--text);
             font-weight: 600;
@@ -711,6 +727,19 @@
 
         .ai-guidance strong:first-child {
             margin-top: 0;
+        }
+
+        /* Don't break list indentation: keep bold inline inside list items */
+        .ai-guidance li strong {
+            display: inline;
+            margin: 0;
+        }
+
+        /* Keep section-like bold headings as blocks when they start a paragraph */
+        .ai-guidance p > strong:first-child {
+            display: block;
+            margin-top: 16px;
+            margin-bottom: 8px;
         }
 
         .ai-guidance ul,
@@ -734,6 +763,51 @@
         .ai-guidance-loading::before {
             content: '⏳';
             font-style: normal;
+        }
+
+        /* Code blocks inside guidance/notes modal */
+        .ai-guidance pre.ai-code-block {
+            background: #0b1020;
+            color: #e6e6e6;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 12px 14px;
+            padding-top: 34px; /* room for language pill without shifting code */
+            overflow: auto;
+            margin: 12px 0;
+            line-height: 1.55;
+            position: relative;
+        }
+
+        .ai-guidance .ai-code-lang {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            display: inline-flex;
+            align-items: center;
+            font-size: 0.72rem;
+            color: rgba(255,255,255,0.75);
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.10);
+            padding: 2px 8px;
+            border-radius: 999px;
+            margin: 0;
+            pointer-events: none;
+        }
+
+        .ai-guidance pre.ai-code-block code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 0.85rem;
+            white-space: pre;
+        }
+
+        .ai-guidance code.ai-inline-code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 0.85em;
+            background: rgba(0,0,0,0.06);
+            border: 1px solid var(--border);
+            padding: 1px 6px;
+            border-radius: 6px;
         }
 
         .topic-name {
@@ -1302,59 +1376,163 @@
 
         function formatAIGuidance(text) {
             if (!text) return '';
-            
+
+            const escapeHtml = (s) => (s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+
+            // Extract fenced code blocks first so markdown/list parsing doesn't mangle them.
+            const codeBlocks = [];
+            let working = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+                const language = (lang || '').trim();
+                const idx = codeBlocks.length;
+                codeBlocks.push({ language, code: code || '' });
+                return `@@CODEBLOCK_${idx}@@`;
+            });
+
+            // Fix common model formatting issue: unmatched single backticks (e.g., "`self")
+            // Balance them per-line so inline code rendering works.
+            working = working
+                .split('\n')
+                .map((l) => ((l.split('`').length - 1) % 2 === 1 ? `${l}\`` : l))
+                .join('\n');
+
             // Convert markdown-style bold **text** to <strong>
-            let formatted = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            let formatted = working.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+            // Inline code `like this`
+            formatted = formatted.replace(/`([^`]+)`/g, (m, code) => `<code class="ai-inline-code">${escapeHtml(code)}</code>`);
             
-            // Split by lines first to handle list items properly
+            // Split by lines first to handle list items properly (preserve indentation)
             const lines = formatted.split('\n');
             let html = '';
-            let inList = false;
-            let listItems = [];
-            
-            for (let line of lines) {
-                line = line.trim();
-                if (!line) {
-                    // Empty line - close list if open, add paragraph break
-                    if (inList && listItems.length > 0) {
-                        html += `<ul>${listItems.join('')}</ul>`;
-                        listItems = [];
-                        inList = false;
+            let listLevel = 0;
+            let listOpen = false;
+
+            const closeListsToLevel = (targetLevel) => {
+                while (listLevel > targetLevel) {
+                    html += `</ul>`;
+                    listLevel--;
+                }
+                if (listLevel === 0) {
+                    listOpen = false;
+                }
+            };
+
+            const openListsToLevel = (targetLevel) => {
+                while (listLevel < targetLevel) {
+                    html += `<ul>`;
+                    listLevel++;
+                    listOpen = true;
+                }
+            };
+
+            for (let i = 0; i < lines.length; i++) {
+                const rawLine = lines[i];
+                const line = rawLine.replace(/\s+$/, ''); // rtrim only
+                const trimmed = line.trim();
+
+                if (!trimmed) {
+                    // Empty line - close all open lists
+                    closeListsToLevel(0);
+                    continue;
+                }
+
+                // Restore fenced code blocks as standalone blocks
+                const codeMatch = trimmed.match(/^@@CODEBLOCK_(\d+)@@$/);
+                if (codeMatch) {
+                    closeListsToLevel(0);
+                    const block = codeBlocks[Number(codeMatch[1])];
+                    if (block) {
+                        const langLabel = block.language ? `<div class="ai-code-lang">${escapeHtml(block.language)}</div>` : '';
+                        html += `<pre class="ai-code-block">${langLabel}<code>${escapeHtml(block.code).replace(/\n$/, '')}</code></pre>`;
                     }
                     continue;
                 }
+
+                // Markdown headings (ATX style): ### Heading
+                const atx = trimmed.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+                if (atx) {
+                    closeListsToLevel(0);
+                    const level = Math.min(6, atx[1].length);
+                    const content = atx[2].trim();
+                    if (!content) continue;
+                    const tag = level <= 2 ? 'h2' : 'h3';
+                    html += `<${tag}>${content}</${tag}>`;
+                    continue;
+                }
+
+                // Ignore lone heading markers like "###"
+                if (/^#{1,6}$/.test(trimmed)) {
+                    closeListsToLevel(0);
+                    continue;
+                }
+
+                // Markdown headings (Setext style):
+                // Title
+                // =====
+                // or
+                // Title
+                // -----
+                const nextTrimmed = (i + 1 < lines.length) ? lines[i + 1].trim() : '';
+                if ((/^=+$/.test(nextTrimmed) || /^-+$/.test(nextTrimmed)) && trimmed && !/^[\*\-\+]\s+/.test(trimmed) && !/^\d+\.\s+/.test(trimmed)) {
+                    closeListsToLevel(0);
+                    const tag = /^=+$/.test(nextTrimmed) ? 'h2' : 'h3';
+                    html += `<${tag}>${trimmed}</${tag}>`;
+                    i++; // skip underline line
+                    continue;
+                }
+
+                // Ignore standalone underline lines like "=====" or "-----"
+                if (/^=+$/.test(trimmed) || /^-+$/.test(trimmed)) {
+                    closeListsToLevel(0);
+                    continue;
+                }
                 
-                // Check if it's a list item (starts with *, -, or number.)
-                if (/^[\*\-]\s+/.test(line) || /^\d+\.\s+/.test(line)) {
+                // Check if it's a list item (supports *, -, +, or number.)
+                const listMatch = line.match(/^(\s*)([\*\-\+])\s+(.+)$/) || line.match(/^(\s*)(\d+\.)\s+(.+)$/);
+                if (listMatch) {
+                    const indent = (listMatch[1] || '').replace(/\t/g, '    ').length;
+                    const level = Math.floor(indent / 2) + 1; // base level 1
+                    // If indentation decreased, close lists back to the correct level first
+                    if (level < listLevel) {
+                        closeListsToLevel(level);
+                    }
+                    openListsToLevel(level);
                     // Remove the bullet/number marker
-                    let itemText = line.replace(/^[\*\-]\s+/, '').replace(/^\d+\.\s+/, '').trim();
+                    let itemText = (listMatch[3] || '').trim();
                     // Remove colon after closing strong tag (e.g., "</strong>: text")
                     itemText = itemText.replace(/<\/strong>:\s*/g, '</strong> ');
                     // Remove leading colon if present
                     itemText = itemText.replace(/^:\s*/, '').trim();
-                    listItems.push(`<li>${itemText}</li>`);
-                    inList = true;
+                    html += `<li>${itemText}</li>`;
                 } else {
                     // Not a list item - close list if open
-                    if (inList && listItems.length > 0) {
-                        html += `<ul>${listItems.join('')}</ul>`;
-                        listItems = [];
-                        inList = false;
-                    }
+                    closeListsToLevel(0);
                     // Remove colon after closing strong tag
-                    let paraText = line.replace(/<\/strong>:\s*/g, '</strong> ');
+                    let paraText = line.trim().replace(/<\/strong>:\s*/g, '</strong> ');
                     // Remove leading colon if present
                     paraText = paraText.replace(/^:\s*/, '').trim();
                     html += `<p>${paraText}</p>`;
                 }
             }
+
+            // Close any remaining lists
+            closeListsToLevel(0);
             
-            // Close any remaining list
-            if (inList && listItems.length > 0) {
-                html += `<ul>${listItems.join('')}</ul>`;
-            }
-            
-            return html || `<p>${formatted.replace(/\n/g, '<br>')}</p>`;
+            // If anything is left (e.g., code placeholder surrounded by text), restore safely
+            const finalHtml = (html || `<p>${formatted.replace(/\n/g, '<br>')}</p>`)
+                .replace(/@@CODEBLOCK_(\d+)@@/g, (m, idxStr) => {
+                    const block = codeBlocks[Number(idxStr)];
+                    if (!block) return '';
+                    const langLabel = block.language ? `<div class="ai-code-lang">${escapeHtml(block.language)}</div>` : '';
+                    return `<pre class="ai-code-block">${langLabel}<code>${escapeHtml(block.code).replace(/\n$/, '')}</code></pre>`;
+                });
+
+            return finalHtml;
         }
 
         // Set minimum date to today (optional field)
@@ -1847,8 +2025,14 @@
                                         </div>
                                     </div>
                                     <div class="topic-actions">
-                                        <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
+                                        <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}" title="${topic.ai_guidance ? 'Refresh AI guidance' : 'Generate AI guidance'}">
                                             ${topic.ai_guidance ? '🔄' : '✨'}
+                                        </button>
+                                        <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" id="notes-btn-${topic.id}" title="${topic.ai_notes ? 'Refresh study notes' : 'Generate study notes'}">
+                                            ${topic.ai_notes ? '🔄' : '📝'}
+                                        </button>
+                                        <button class="btn btn-ghost btn-mini" onclick="editTopicNotes(${topic.id})" title="Edit your notes">
+                                            ✍️
                                         </button>
                                         <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
                                             ${topic.status === 'completed' ? 'Undo' : 'Done'}
@@ -1899,8 +2083,14 @@
                                             </div>
                                         </div>
                                         <div class="topic-actions">
-                                            <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
+                                            <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}" title="${topic.ai_guidance ? 'Refresh AI guidance' : 'Generate AI guidance'}">
                                                 ${topic.ai_guidance ? '🔄' : '✨'}
+                                            </button>
+                                            <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" id="notes-btn-${topic.id}" title="${topic.ai_notes ? 'Refresh study notes' : 'Generate study notes'}">
+                                                ${topic.ai_notes ? '🔄' : '📝'}
+                                            </button>
+                                            <button class="btn btn-ghost btn-mini" onclick="editTopicNotes(${topic.id})" title="Edit your notes">
+                                                ✍️
                                             </button>
                                             <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
                                                 ${topic.status === 'completed' ? 'Undo' : 'Done'}
@@ -2985,10 +3175,13 @@
             // Get topic name for modal title
             const topicItem = btn.closest('.topic-item');
             const topicName = topicItem ? topicItem.querySelector('.topic-name')?.textContent || 'Topic' : 'Topic';
+
+            // If guidance exists already, the button shows 🔄. Treat click as a "refresh" (force regenerate).
+            const shouldForce = (btn && btn.textContent && btn.textContent.trim() === '🔄');
             
             // Show modal with loading state
             modalTitle.textContent = topicName;
-            modalContent.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-light);">⏳ Generating guidance...</div>';
+            modalContent.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-light);">⏳ ${shouldForce ? 'Refreshing' : 'Generating'} guidance...</div>`;
             modal.classList.add('active');
             
             btn.disabled = true;
@@ -3002,7 +3195,8 @@
             }
 
             try {
-                const response = await fetch(`/api/topics/${topicId}/ai-guidance`, {
+                const url = shouldForce ? `/api/topics/${topicId}/ai-guidance?force=1` : `/api/topics/${topicId}/ai-guidance`;
+                const response = await fetch(url, {
                     method: 'POST'
                 });
 
@@ -3069,6 +3263,134 @@
                 .catch(error => {
                     console.error('Error loading guidance:', error);
                 });
+        }
+
+        async function generateStudyNotes(topicId) {
+            const btn = document.getElementById(`notes-btn-${topicId}`);
+            const modal = document.getElementById('guidance-modal');
+            const modalContent = document.getElementById('modal-guidance-content');
+            const modalTitle = document.getElementById('modal-title');
+
+            const topicItem = btn.closest('.topic-item');
+            const topicName = topicItem ? topicItem.querySelector('.topic-name')?.textContent || 'Topic' : 'Topic';
+
+            // Refresh notes when button is in 🔄 state (we set it after first success)
+            const shouldForce = (btn && btn.textContent && btn.textContent.trim() === '🔄');
+
+            modalTitle.textContent = `${topicName} — Notes`;
+            modalContent.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-light);">⏳ ${shouldForce ? 'Refreshing' : 'Generating'} notes...</div>`;
+            modal.classList.add('active');
+
+            btn.disabled = true;
+            btn.textContent = '⏳';
+
+            // Store the currently active tab before reloading
+            let activeTabId = null;
+            const activeTab = document.querySelector('.topic-tab.active');
+            if (activeTab) {
+                activeTabId = activeTab.id.replace('tab-', '');
+            }
+
+            try {
+                const url = shouldForce ? `/api/topics/${topicId}/study-notes?force=1` : `/api/topics/${topicId}/study-notes`;
+                const response = await fetch(url, { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Reuse formatter (Markdown-ish) for now
+                    modalContent.innerHTML = formatAIGuidance(data.notes_markdown);
+                    btn.textContent = '🔄';
+                    btn.disabled = false;
+
+                    // Reload interview to reflect stored notes on topic (future UI can show "View Notes")
+                    await loadInterviewDetail(currentInterviewId);
+
+                    if (activeTabId) {
+                        setTimeout(() => {
+                            window.switchTopicTab(activeTabId);
+                        }, 100);
+                    }
+                } else {
+                    modalContent.innerHTML = `<div style="color: var(--accent); padding: 20px; text-align: center;">${data.error || 'Failed to generate notes'}</div>`;
+                    btn.textContent = '📝';
+                    btn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Error generating study notes:', error);
+                modalContent.innerHTML = '<div style="color: var(--accent); padding: 20px; text-align: center;">Failed to generate notes. Please try again.</div>';
+                btn.textContent = '📝';
+                btn.disabled = false;
+            }
+        }
+
+        async function editTopicNotes(topicId) {
+            const modal = document.getElementById('guidance-modal');
+            const modalContent = document.getElementById('modal-guidance-content');
+            const modalTitle = document.getElementById('modal-title');
+
+            // Store the currently active tab before reloading
+            let activeTabId = null;
+            const activeTab = document.querySelector('.topic-tab.active');
+            if (activeTab) {
+                activeTabId = activeTab.id.replace('tab-', '');
+            }
+
+            try {
+                const response = await fetch(`/api/interviews/${currentInterviewId}`);
+                const interview = await response.json();
+                const topic = interview.topics.find(t => t.id === topicId);
+                const topicName = topic?.topic_name || 'Topic';
+                const existingNotes = topic?.notes || '';
+
+                modalTitle.textContent = `${topicName} — Your notes`;
+                modalContent.innerHTML = `
+                    <div style="display:flex; flex-direction:column; gap:12px;">
+                        <textarea id="user-topic-notes" style="width:100%; min-height:220px; padding:12px; border:1px solid var(--border); border-radius:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 0.9rem; line-height: 1.4;" placeholder="Add your own study material here (Markdown ok)">${existingNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+                        <div style="display:flex; gap:8px; justify-content:flex-end;">
+                            <button class="btn btn-secondary" onclick="closeGuidanceModal()">Cancel</button>
+                            <button class="btn" id="save-user-notes-btn">Save</button>
+                        </div>
+                        <div style="font-size:0.8rem; color: var(--text-light);">
+                            Tip: these notes are saved with the topic and can be used when generating 📝 Study Notes.
+                        </div>
+                    </div>
+                `;
+                modal.classList.add('active');
+
+                const saveBtn = document.getElementById('save-user-notes-btn');
+                saveBtn.addEventListener('click', async () => {
+                    const textarea = document.getElementById('user-topic-notes');
+                    const notes = textarea ? textarea.value : '';
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = 'Saving...';
+
+                    try {
+                        const putRes = await fetch(`/api/topics/${topicId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ notes })
+                        });
+                        const putData = await putRes.json().catch(() => ({}));
+                        if (!putRes.ok) {
+                            throw new Error(putData.error || 'Failed to save notes');
+                        }
+
+                        await loadInterviewDetail(currentInterviewId);
+                        if (activeTabId) {
+                            setTimeout(() => window.switchTopicTab(activeTabId), 100);
+                        }
+                        closeGuidanceModal();
+                    } catch (e) {
+                        alert(e.message || 'Failed to save notes');
+                    } finally {
+                        saveBtn.disabled = false;
+                        saveBtn.textContent = 'Save';
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading topic for notes editor:', error);
+                alert('Failed to load topic');
+            }
         }
 
         let allTopicsVisible = false;

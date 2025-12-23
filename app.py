@@ -4,6 +4,7 @@ from functools import wraps
 import sqlite3
 import os
 import json
+import time
 
 # PostgreSQL support
 try:
@@ -34,7 +35,42 @@ try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    pass  # python-dotenv not installed, will use system environment variables
+    # python-dotenv not installed; fallback to a minimal .env loader so local dev still works.
+    def _load_env_file_fallback(filename='.env'):
+        """
+        Minimal .env parser:
+        - supports KEY=VALUE
+        - ignores blank lines and comments (# ...)
+        - strips surrounding single/double quotes
+        - does not override existing environment variables
+        """
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            path = os.path.join(base_dir, filename)
+            if not os.path.exists(path):
+                return
+            with open(path, 'r', encoding='utf-8') as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if '=' not in line:
+                        continue
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    if not key:
+                        continue
+                    # Strip surrounding quotes
+                    if len(value) >= 2 and ((value[0] == value[-1]) and value[0] in ("'", '"')):
+                        value = value[1:-1]
+                    if key not in os.environ:
+                        os.environ[key] = value
+        except Exception:
+            # Best-effort; ignore parsing errors
+            return
+
+    _load_env_file_fallback('.env')
 
 try:
     from groq import Groq
@@ -54,7 +90,13 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 # Database configuration
 # Use Railway's DATABASE_URL if available (PostgreSQL), otherwise use local SQLite
 DATABASE_URL = os.getenv('DATABASE_URL')
-USE_POSTGRESQL = DATABASE_URL and ('postgresql' in DATABASE_URL or 'postgres' in DATABASE_URL)
+USE_POSTGRESQL = bool(DATABASE_URL and ('postgresql' in DATABASE_URL or 'postgres' in DATABASE_URL))
+
+# Local dev safety: if DATABASE_URL is set but psycopg2 isn't installed, fall back to SQLite
+# (common when .env includes Railway's DATABASE_URL).
+if USE_POSTGRESQL and not POSTGRESQL_AVAILABLE and os.getenv('RAILWAY_ENVIRONMENT') is None:
+    print("⚠️  DATABASE_URL is set but psycopg2 is not installed. Falling back to SQLite for local development.")
+    USE_POSTGRESQL = False
 
 if USE_POSTGRESQL:
     DATABASE = DATABASE_URL  # Full PostgreSQL connection string
@@ -93,8 +135,16 @@ def get_db():
         conn = psycopg2.connect(DATABASE_URL)
         return conn
     else:
-        conn = sqlite3.connect(DATABASE)
+        # Reduce "database is locked" errors (common under Flask reloader)
+        conn = sqlite3.connect(DATABASE, timeout=30)
         conn.row_factory = sqlite3.Row
+        try:
+            conn.execute('PRAGMA foreign_keys=ON;')
+            conn.execute('PRAGMA journal_mode=WAL;')
+            conn.execute('PRAGMA synchronous=NORMAL;')
+            conn.execute('PRAGMA busy_timeout=30000;')
+        except Exception:
+            pass
         return conn
 
 def db_execute(conn, query, params=None):
@@ -171,6 +221,7 @@ def init_db():
             status TEXT DEFAULT 'pending',
             notes TEXT,
             ai_guidance TEXT,
+            ai_notes TEXT,
             {foreign_key_syntax}
         )
     ''')
@@ -199,6 +250,16 @@ def init_db():
                 cursor.execute('ALTER TABLE topics ADD COLUMN category_name TEXT')
         except Exception:
             pass  # Column already exists or error
+        try:
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='topics' AND column_name='ai_notes'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE topics ADD COLUMN ai_notes TEXT')
+        except Exception:
+            pass
     else:
         # SQLite: Try to add, ignore if exists
         try:
@@ -207,6 +268,10 @@ def init_db():
             pass  # Column already exists
         try:
             cursor.execute('ALTER TABLE topics ADD COLUMN category_name TEXT')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute('ALTER TABLE topics ADD COLUMN ai_notes TEXT')
         except sqlite3.OperationalError:
             pass  # Column already exists
     
@@ -223,9 +288,216 @@ def init_db():
             FOREIGN KEY (topic_id) REFERENCES topics (id)
         )
     ''')
+
+    # Global AI guidance cache (reusable across interviews)
+    # Keys are normalized to maximize cache hits and avoid duplicate regeneration.
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS ai_guidance_cache (
+            {id_col},
+            position_key TEXT,
+            topic_key TEXT,
+            topic_path_key TEXT,
+            ai_guidance TEXT,
+            model_provider TEXT,
+            model_name TEXT,
+            updated_at TEXT,
+            UNIQUE(position_key, topic_key, topic_path_key)
+        )
+    ''')
+
+    # Global Study Notes cache (compiled/curated format, reusable across interviews)
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS study_notes_cache (
+            {id_col},
+            position_key TEXT,
+            topic_key TEXT,
+            topic_path_key TEXT,
+            notes_markdown TEXT,
+            model_provider TEXT,
+            model_name TEXT,
+            updated_at TEXT,
+            UNIQUE(position_key, topic_key, topic_path_key)
+        )
+    ''')
     
     conn.commit()
     cursor.close()
+    conn.close()
+
+def _normalize_cache_key(value):
+    """Normalize strings for cache keys (stable across whitespace/case variations)."""
+    if not value:
+        return ''
+    if not isinstance(value, str):
+        value = str(value)
+    # Collapse whitespace, lower-case, trim
+    return ' '.join(value.strip().lower().split())
+
+def _get_cached_ai_guidance(position, topic_name, topic_path):
+    """Fetch cached AI guidance (if any) for a given position/topic/path."""
+    conn = get_db()
+    position_key = _normalize_cache_key(position)
+    topic_key = _normalize_cache_key(topic_name)
+    topic_path_key = _normalize_cache_key(topic_path)
+
+    try:
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, '''
+                SELECT ai_guidance
+                FROM ai_guidance_cache
+                WHERE position_key = %s AND topic_key = %s AND topic_path_key = %s
+                LIMIT 1
+            ''', (position_key, topic_key, topic_path_key))
+            row = db_fetchone(cursor)
+            cursor.close()
+        else:
+            cursor = db_execute(conn, '''
+                SELECT ai_guidance
+                FROM ai_guidance_cache
+                WHERE position_key = ? AND topic_key = ? AND topic_path_key = ?
+                LIMIT 1
+            ''', (position_key, topic_key, topic_path_key))
+            row = db_fetchone(cursor)
+    except sqlite3.OperationalError as e:
+        # If migrations haven't run yet, treat as cache miss (do not fail request)
+        if 'no such table' in str(e).lower():
+            conn.close()
+            return None
+        conn.close()
+        raise
+    conn.close()
+    if not row:
+        return None
+    return dict(row).get('ai_guidance') if USE_POSTGRESQL else row[0] if isinstance(row, tuple) else dict(row).get('ai_guidance')
+
+def _upsert_cached_ai_guidance(position, topic_name, topic_path, ai_guidance, model_provider=None, model_name=None):
+    """Insert/update cached AI guidance for reuse across interviews."""
+    if not ai_guidance:
+        return
+    conn = get_db()
+    position_key = _normalize_cache_key(position)
+    topic_key = _normalize_cache_key(topic_name)
+    topic_path_key = _normalize_cache_key(topic_path)
+    updated_at = datetime.utcnow().isoformat()
+
+    try:
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, '''
+                INSERT INTO ai_guidance_cache (position_key, topic_key, topic_path_key, ai_guidance, model_provider, model_name, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (position_key, topic_key, topic_path_key)
+                DO UPDATE SET
+                    ai_guidance = EXCLUDED.ai_guidance,
+                    model_provider = EXCLUDED.model_provider,
+                    model_name = EXCLUDED.model_name,
+                    updated_at = EXCLUDED.updated_at
+            ''', (position_key, topic_key, topic_path_key, ai_guidance, model_provider, model_name, updated_at))
+            cursor.close()
+        else:
+            db_execute(conn, '''
+                INSERT INTO ai_guidance_cache (position_key, topic_key, topic_path_key, ai_guidance, model_provider, model_name, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(position_key, topic_key, topic_path_key)
+                DO UPDATE SET
+                    ai_guidance = excluded.ai_guidance,
+                    model_provider = excluded.model_provider,
+                    model_name = excluded.model_name,
+                    updated_at = excluded.updated_at
+            ''', (position_key, topic_key, topic_path_key, ai_guidance, model_provider, model_name, updated_at))
+    except sqlite3.OperationalError as e:
+        # If cache table doesn't exist yet, just skip caching.
+        if 'no such table' in str(e).lower():
+            conn.close()
+            return
+        conn.close()
+        raise
+
+    conn.commit()
+    conn.close()
+
+def _get_cached_study_notes(position, topic_name, topic_path):
+    """Fetch cached study notes (if any) for a given position/topic/path."""
+    conn = get_db()
+    position_key = _normalize_cache_key(position)
+    topic_key = _normalize_cache_key(topic_name)
+    topic_path_key = _normalize_cache_key(topic_path)
+
+    try:
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, '''
+                SELECT notes_markdown
+                FROM study_notes_cache
+                WHERE position_key = %s AND topic_key = %s AND topic_path_key = %s
+                LIMIT 1
+            ''', (position_key, topic_key, topic_path_key))
+            row = db_fetchone(cursor)
+            cursor.close()
+        else:
+            cursor = db_execute(conn, '''
+                SELECT notes_markdown
+                FROM study_notes_cache
+                WHERE position_key = ? AND topic_key = ? AND topic_path_key = ?
+                LIMIT 1
+            ''', (position_key, topic_key, topic_path_key))
+            row = db_fetchone(cursor)
+    except sqlite3.OperationalError as e:
+        if 'no such table' in str(e).lower():
+            conn.close()
+            return None
+        conn.close()
+        raise
+
+    conn.close()
+    if not row:
+        return None
+    if USE_POSTGRESQL:
+        return dict(row).get('notes_markdown')
+    if isinstance(row, tuple):
+        return row[0]
+    return dict(row).get('notes_markdown')
+
+def _upsert_cached_study_notes(position, topic_name, topic_path, notes_markdown, model_provider=None, model_name=None):
+    """Insert/update cached study notes for reuse across interviews."""
+    if not notes_markdown:
+        return
+    conn = get_db()
+    position_key = _normalize_cache_key(position)
+    topic_key = _normalize_cache_key(topic_name)
+    topic_path_key = _normalize_cache_key(topic_path)
+    updated_at = datetime.utcnow().isoformat()
+
+    try:
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, '''
+                INSERT INTO study_notes_cache (position_key, topic_key, topic_path_key, notes_markdown, model_provider, model_name, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (position_key, topic_key, topic_path_key)
+                DO UPDATE SET
+                    notes_markdown = EXCLUDED.notes_markdown,
+                    model_provider = EXCLUDED.model_provider,
+                    model_name = EXCLUDED.model_name,
+                    updated_at = EXCLUDED.updated_at
+            ''', (position_key, topic_key, topic_path_key, notes_markdown, model_provider, model_name, updated_at))
+            cursor.close()
+        else:
+            db_execute(conn, '''
+                INSERT INTO study_notes_cache (position_key, topic_key, topic_path_key, notes_markdown, model_provider, model_name, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(position_key, topic_key, topic_path_key)
+                DO UPDATE SET
+                    notes_markdown = excluded.notes_markdown,
+                    model_provider = excluded.model_provider,
+                    model_name = excluded.model_name,
+                    updated_at = excluded.updated_at
+            ''', (position_key, topic_key, topic_path_key, notes_markdown, model_provider, model_name, updated_at))
+    except sqlite3.OperationalError as e:
+        if 'no such table' in str(e).lower():
+            conn.close()
+            return
+        conn.close()
+        raise
+
+    conn.commit()
     conn.close()
 
 @app.route('/')
@@ -753,6 +1025,8 @@ def refresh_topics(interview_id):
 @app.route('/api/topics/<int:topic_id>/ai-guidance', methods=['POST'])
 def generate_ai_guidance(topic_id):
     """Generate AI-powered study guidance for a topic based on the position"""
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get('force')) or str(request.args.get('force', '')).lower() in ('1', 'true', 'yes')
     conn = get_db()
     cursor = db_execute(conn, 'SELECT * FROM topics WHERE id = ?', (topic_id,))
     topic = db_fetchone(cursor)
@@ -774,8 +1048,27 @@ def generate_ai_guidance(topic_id):
     
     position = dict(interview).get('position', 'Data Scientist')
     topic_name = dict(topic).get('topic_name', '')
+    category_name = dict(topic).get('category_name')
+    existing_ai_guidance = dict(topic).get('ai_guidance')
+    # If we already have guidance saved for this topic, return it (unless forced)
+    if existing_ai_guidance and not force:
+        return jsonify({'ai_guidance': existing_ai_guidance, 'message': 'Using cached AI guidance'})
+
+    parent_path_raw = category_name.strip() if isinstance(category_name, str) and category_name.strip() else None
+    parent_path_display = parent_path_raw.replace(' > ', ' → ') if parent_path_raw else None
+    full_topic_path = f"{parent_path_display} → {topic_name}" if parent_path_display else topic_name
+    parent_context = f"\nTopic path: {full_topic_path}\n" if full_topic_path else ""
+
+    # Global cache: reuse across interviews when possible (unless forced)
+    if not force:
+        # Use raw " > " path for a stable key (matches topics.json storage), plus the leaf topic
+        topic_path_key_source = f"{parent_path_raw} > {topic_name}" if parent_path_raw else topic_name
+        cached = _get_cached_ai_guidance(position, topic_name, topic_path_key_source)
+        if cached:
+            _save_ai_guidance(topic_id, cached)
+            return jsonify({'ai_guidance': cached, 'message': 'Using global cached AI guidance'})
     
-    prompt = f"""You are an expert interview preparation coach specializing in {position} roles. Provide comprehensive, interview-focused guidance for: {topic_name}
+    prompt = f"""You are an expert interview preparation coach specializing in {position} roles. Provide comprehensive, interview-focused guidance for: {topic_name}{parent_context}
 
 For this topic, break it down into specific, actionable learning points that are commonly tested in interviews. For each point, include:
 
@@ -785,6 +1078,8 @@ For this topic, break it down into specific, actionable learning points that are
 4. **Key Details to Know**: Important nuances, gotchas, or advanced points
 
 Structure your response as:
+- Start with a title line: **Topic:** {topic_name}
+- Then a short **Where this fits** section (2-4 bullets) that explicitly references the topic path (if provided) and calls out key prerequisites.
 - Use **bold** for subtopic names
 - Use bullet points for details under each subtopic
 - Be specific and actionable - focus on what candidates actually need to know
@@ -809,6 +1104,8 @@ Keep it concise but comprehensive - aim for 3-5 main subtopics with 2-4 key poin
             )
             ai_guidance = response.choices[0].message.content.strip()
             _save_ai_guidance(topic_id, ai_guidance)
+            topic_path_key_source = f"{parent_path_raw} > {topic_name}" if parent_path_raw else topic_name
+            _upsert_cached_ai_guidance(position, topic_name, topic_path_key_source, ai_guidance, model_provider='groq', model_name="llama-3.1-8b-instant")
             return jsonify({'ai_guidance': ai_guidance, 'message': 'AI guidance generated successfully'})
         except Exception as e:
             # Log the error for debugging
@@ -835,6 +1132,8 @@ Keep it concise but comprehensive - aim for 3-5 main subtopics with 2-4 key poin
             )
             ai_guidance = response.text.strip()
             _save_ai_guidance(topic_id, ai_guidance)
+            topic_path_key_source = f"{parent_path_raw} > {topic_name}" if parent_path_raw else topic_name
+            _upsert_cached_ai_guidance(position, topic_name, topic_path_key_source, ai_guidance, model_provider='gemini', model_name='gemini-pro')
             return jsonify({'ai_guidance': ai_guidance, 'message': 'AI guidance generated successfully'})
         except Exception as e:
             # Fall through to error
@@ -862,6 +1161,151 @@ def _save_ai_guidance(topic_id, ai_guidance):
         cursor.close()
     conn.commit()
     conn.close()
+
+def _save_ai_notes(topic_id, ai_notes):
+    """Helper function to save AI study notes to database"""
+    conn = get_db()
+    cursor = db_execute(conn, 'UPDATE topics SET ai_notes = ? WHERE id = ?', (ai_notes, topic_id))
+    if USE_POSTGRESQL:
+        cursor.close()
+    conn.commit()
+    conn.close()
+
+@app.route('/api/topics/<int:topic_id>/study-notes', methods=['POST'])
+def generate_study_notes(topic_id):
+    """
+    Generate (or reuse) per-topic study notes compiled from AI guidance.
+    Cache behavior:
+    - If topics.ai_notes exists, return it unless force=1 / {"force": true}
+    - Else try global study_notes_cache keyed by (position, topic, topic_path)
+    """
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get('force')) or str(request.args.get('force', '')).lower() in ('1', 'true', 'yes')
+
+    conn = get_db()
+    cursor = db_execute(conn, 'SELECT * FROM topics WHERE id = ?', (topic_id,))
+    topic = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
+    if not topic:
+        conn.close()
+        return jsonify({'error': 'Topic not found'}), 404
+
+    cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (dict(topic)['interview_id'],))
+    interview = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
+    if not interview:
+        conn.close()
+        return jsonify({'error': 'Study material not found'}), 404
+    conn.close()
+
+    position = dict(interview).get('position', 'Data Scientist')
+    topic_name = dict(topic).get('topic_name', '')
+    category_name = dict(topic).get('category_name')
+    parent_path_raw = category_name.strip() if isinstance(category_name, str) and category_name.strip() else None
+    topic_path_key_source = f"{parent_path_raw} > {topic_name}" if parent_path_raw else topic_name
+
+    existing_notes = dict(topic).get('ai_notes')
+    if existing_notes and not force:
+        return jsonify({'notes_markdown': existing_notes, 'message': 'Using cached study notes'})
+
+    if not force:
+        cached_notes = _get_cached_study_notes(position, topic_name, topic_path_key_source)
+        if cached_notes:
+            _save_ai_notes(topic_id, cached_notes)
+            return jsonify({'notes_markdown': cached_notes, 'message': 'Using global cached study notes'})
+
+    # We compile notes from existing guidance where possible
+    existing_guidance = dict(topic).get('ai_guidance')
+    user_material = dict(topic).get('notes') or ''
+    if not existing_guidance:
+        # Trigger guidance generation (respects global guidance cache unless forced)
+        # We call the underlying logic by reusing the route function's behavior via a direct call.
+        # Simpler: just instruct user to generate guidance first, but better UX is to generate it now.
+        # We'll attempt to reuse global guidance cache here (same keys as guidance endpoint).
+        cached_guidance = _get_cached_ai_guidance(position, topic_name, topic_path_key_source)
+        if cached_guidance:
+            existing_guidance = cached_guidance
+            _save_ai_guidance(topic_id, cached_guidance)
+
+    if not existing_guidance and not (os.getenv('GROQ_API_KEY') or os.getenv('GOOGLE_API_KEY') or os.environ.get('GROQ_API_KEY')):
+        return jsonify({'error': 'No AI API key configured. Set GROQ_API_KEY or GOOGLE_API_KEY, or generate guidance first.'}), 400
+
+    # Build topic path display for context
+    parent_path_display = parent_path_raw.replace(' > ', ' → ') if parent_path_raw else None
+    full_topic_path = f"{parent_path_display} → {topic_name}" if parent_path_display else topic_name
+
+    prompt = f"""You are an expert interview preparation coach specializing in Data Scientist interviews.
+
+You are compiling STUDY NOTES for one topic. The notes must be concise, structured, and easy to review quickly.
+
+Topic path: {full_topic_path}
+
+User-provided notes/material (may be empty, treat as authoritative if present):
+{user_material}
+
+Input guidance (may include extra detail):
+{existing_guidance or ''}
+
+Write study notes in Markdown with these sections (use these exact headings):
+## Summary (5 bullets max)
+## Key concepts
+## Common interview questions (with brief answers)
+## Pitfalls & gotchas
+## Mini cheat-sheet (syntax / patterns)
+## Practice (3 tasks: easy/medium/hard)
+
+Rules:
+- Tailor to Data Scientist expectations (pandas/pyarrow examples ok; Spark only if relevant).
+- Avoid fluff. Prefer concrete examples and decision tradeoffs.
+- If the input guidance is missing something critical, infer reasonable details but keep it brief."""
+
+    # Prefer Groq, then Gemini (similar to guidance)
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    if groq_key and Groq:
+        try:
+            client = Groq(api_key=groq_key)
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": "You are an expert interview preparation coach. You write crisp, well-structured study notes in Markdown. You are concise and practical."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=700,
+                temperature=0.4
+            )
+            notes_markdown = response.choices[0].message.content.strip()
+            _save_ai_notes(topic_id, notes_markdown)
+            _upsert_cached_study_notes(position, topic_name, topic_path_key_source, notes_markdown, model_provider='groq', model_name="llama-3.1-8b-instant")
+            return jsonify({'notes_markdown': notes_markdown, 'message': 'Study notes generated successfully'})
+        except Exception as e:
+            error_msg = str(e)
+            import traceback
+            print(f"Groq API error (study notes): {error_msg}")
+            print(traceback.format_exc())
+            return jsonify({'error': f'Groq API error: {error_msg}. Check server logs for details.'}), 500
+
+    gemini_key = os.getenv('GOOGLE_API_KEY')
+    if gemini_key and genai:
+        try:
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-pro')
+            response = model.generate_content(
+                prompt,
+                generation_config={
+                    'max_output_tokens': 700,
+                    'temperature': 0.4,
+                }
+            )
+            notes_markdown = response.text.strip()
+            _save_ai_notes(topic_id, notes_markdown)
+            _upsert_cached_study_notes(position, topic_name, topic_path_key_source, notes_markdown, model_provider='gemini', model_name='gemini-pro')
+            return jsonify({'notes_markdown': notes_markdown, 'message': 'Study notes generated successfully'})
+        except Exception:
+            pass
+
+    return jsonify({'error': 'Failed to generate study notes. Configure GROQ_API_KEY or GOOGLE_API_KEY.'}), 500
 
 def load_default_topics():
     """Load default topics from topics.json file - supports recursive nesting"""
@@ -1206,18 +1650,49 @@ def ensure_db_initialized():
         return
     
     try:
-        # Try a simple query to check if tables exist
+        # Try a simple query to check if core tables exist
         conn = get_db()
         cursor = db_execute(conn, "SELECT 1 FROM interviews LIMIT 1")
         if USE_POSTGRESQL:
             cursor.close()
         conn.close()
+        # Core tables exist, but still run init_db() to apply any new migrations
+        # (CREATE TABLE IF NOT EXISTS / ALTER TABLE ... ADD COLUMN ...).
+        # Retry a few times in case the SQLite DB is briefly locked (Flask reloader).
+        last_err = None
+        for attempt in range(5):
+            try:
+                init_db()
+                last_err = None
+                break
+            except sqlite3.OperationalError as e:
+                last_err = e
+                if 'locked' in str(e).lower():
+                    time.sleep(0.2 * (attempt + 1))
+                    continue
+                raise
+        if last_err is not None:
+            raise last_err
         _db_initialized = True
-        print("✅ Database tables already exist")
+        print("✅ Database tables already exist (migrations applied)")
     except Exception:
         # Tables don't exist, initialize them
         try:
-            init_db()
+            # Same retry logic for first-time init
+            last_err = None
+            for attempt in range(5):
+                try:
+                    init_db()
+                    last_err = None
+                    break
+                except sqlite3.OperationalError as e:
+                    last_err = e
+                    if 'locked' in str(e).lower():
+                        time.sleep(0.2 * (attempt + 1))
+                        continue
+                    raise
+            if last_err is not None:
+                raise last_err
             _db_initialized = True
             print("✅ Database initialized successfully")
         except Exception as e:
