@@ -390,13 +390,18 @@
                 });
             }
             
+            // Check if there's any content to toggle
+            // Always show toggle button for subcategories, even if empty (so they look consistent)
+            const hasContent = hasSubcategories || hasDirectTopics;
+            const showToggle = hasContent || depth > 0; // Show toggle for all subcategories (depth > 0) or if they have content
+            
             // Build the node HTML
             const sectionId = `section-${pathString}`;
             html += `
                 <div class="subcategory-section" style="margin-left: ${indent}px; ${depth > 0 ? 'border-left: 2px solid var(--border); padding-left: 16px;' : ''}">
                     <div class="subcategory-header">
                         <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                            <button class="toggle-btn" onclick="toggleSection('${sectionId}')" title="Toggle section">▼</button>
+                            ${showToggle ? `<button class="toggle-btn" onclick="toggleSection('${sectionId}')" title="Toggle section">${hasContent ? '▼' : '▶'}</button>` : '<span style="width: 24px;"></span>'}
                             <input type="text" class="subcategory-title" value="${node.name}" 
                                    onchange="updateNodeNameByPath([${path.join(',')}], this.value)"
                                    style="border: none; background: transparent; font-size: ${fontSize}rem; font-weight: 600; padding: 0; width: 100%; max-width: ${600 - depth * 50}px;">
@@ -407,10 +412,9 @@
                             ${depth > 0 ? `<button class="btn btn-danger btn-small" onclick="deleteNodeByPath([${path.join(',')}])">Delete</button>` : ''}
                         </div>
                     </div>
-                    <div class="subcategory-content" id="${sectionId}">
+                    <div class="subcategory-content ${hasContent ? '' : 'hidden'}" id="${sectionId}">
                         ${subcategoriesHtml}
                         ${hasDirectTopics ? `<ul class="topics-list">${topicsHtml}</ul>` : ''}
-                        ${hasDirectTopics ? `
                         <div class="add-topic-form">
                             <div class="form-row">
                                 <div class="input-group">
@@ -420,7 +424,6 @@
                                 <button class="btn btn-secondary btn-small" onclick="addTopicByPath([${path.join(',')}])">Add Topic</button>
                             </div>
                         </div>
-                        ` : ''}
                     </div>
                 </div>
             `;
@@ -446,49 +449,73 @@
                     });
                 }
                 
+                // Render direct topics if they exist
+                let directTopicsHtml = '';
+                if (hasDirectTopics) {
+                    category.topics.forEach((topic, topicIndex) => {
+                        directTopicsHtml += `
+                            <li class="topic-item">
+                                <input type="text" class="topic-name" value="${topic}" 
+                                       onchange="updateTopicByPath([${catIndex}], ${topicIndex}, this.value)"
+                                       style="border: none; background: transparent; flex: 1; padding: 0;">
+                                <div class="topic-actions">
+                                    <button class="btn btn-danger btn-small" onclick="deleteTopicByPath([${catIndex}], ${topicIndex})">×</button>
+                                </div>
+                            </li>
+                        `;
+                    });
+                }
+                
                 const categorySectionId = `category-section-${catIndex}`;
+                const categoryHasContent = hasSubcategories || hasDirectTopics;
+                
                 card.innerHTML = `
                     <div class="category-header">
                         <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
-                            <button class="toggle-btn" onclick="toggleSection('${categorySectionId}')" title="Toggle category">▼</button>
+                            ${categoryHasContent ? `<button class="toggle-btn" onclick="toggleSection('${categorySectionId}')" title="Toggle category">▼</button>` : '<span style="width: 24px;"></span>'}
                             <input type="text" class="category-title" value="${category.name}" 
                                    onchange="updateCategoryName(${catIndex}, this.value)"
                                    style="border: none; background: transparent; font-size: 1.25rem; font-weight: 600; padding: 0; width: 100%; max-width: 800px;">
                         </div>
                         <div style="display: flex; gap: 8px;">
                             <button class="btn btn-secondary btn-small" onclick="addSubcategory(${catIndex})">+ Add Subcategory</button>
+                            <button class="btn btn-secondary btn-small" onclick="addTopicByPath([${catIndex}])">+ Add Topic</button>
                             <button class="btn btn-danger btn-small" onclick="deleteCategory(${catIndex})">Delete Category</button>
                         </div>
                     </div>
-                    <div class="subcategory-content" id="${categorySectionId}">
+                    <div class="subcategory-content ${categoryHasContent ? '' : 'hidden'}" id="${categorySectionId}">
                         ${subcategoriesContainer}
+                        ${hasDirectTopics ? `
+                            <div class="subcategory-section" style="margin-top: ${hasSubcategories ? '20' : '0'}px;">
+                                <div class="subcategory-header" style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);">
+                                    <div style="font-size: 0.9375rem; font-weight: 600; color: var(--text);">Topics</div>
+                                </div>
+                                <ul class="topics-list">${directTopicsHtml}</ul>
+                                <div class="add-topic-form">
+                                    <div class="form-row">
+                                        <div class="input-group">
+                                            <input type="text" id="new-topic-${catIndex}" placeholder="Add new topic..." 
+                                                   onkeypress="if(event.key==='Enter') addTopicByPath([${catIndex}])">
+                                        </div>
+                                        <button class="btn btn-secondary btn-small" onclick="addTopicByPath([${catIndex}])">Add Topic</button>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${!hasDirectTopics ? `
+                            <div class="add-topic-form">
+                                <div class="form-row">
+                                    <div class="input-group">
+                                        <input type="text" id="new-topic-${catIndex}" placeholder="Add new topic..." 
+                                               onkeypress="if(event.key==='Enter') addTopicByPath([${catIndex}])">
+                                    </div>
+                                    <button class="btn btn-secondary btn-small" onclick="addTopicByPath([${catIndex}])">Add Topic</button>
+                                </div>
+                            </div>
+                        ` : ''}
                     </div>
-                    ${hasDirectTopics ? `
-                        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-                            <p style="font-size: 0.875rem; color: var(--text-light); margin-bottom: 12px;">Legacy topics (consider moving to subcategories):</p>
-                            <ul class="topics-list" id="topics-${catIndex}"></ul>
-                        </div>
-                    ` : ''}
                 `;
                 container.appendChild(card);
-                
-                // Render legacy topics if they exist
-                if (hasDirectTopics) {
-                    const topicsList = document.getElementById(`topics-${catIndex}`);
-                    category.topics.forEach((topic, topicIndex) => {
-                        const li = document.createElement('li');
-                        li.className = 'topic-item';
-                        li.innerHTML = `
-                            <input type="text" class="topic-name" value="${topic}" 
-                                   onchange="updateLegacyTopic(${catIndex}, ${topicIndex}, this.value)"
-                                   style="border: none; background: transparent; flex: 1; padding: 0;">
-                            <div class="topic-actions">
-                                <button class="btn btn-danger btn-small" onclick="deleteLegacyTopic(${catIndex}, ${topicIndex})">×</button>
-                            </div>
-                        `;
-                        topicsList.appendChild(li);
-                    });
-                }
             });
         }
 
@@ -527,6 +554,12 @@
             }
             topicsData.categories[catIndex].subcategories.push({ name: name.trim(), topics: [] });
             renderCategories();
+            // Show the category content section if it was hidden
+            const categorySectionId = `category-section-${catIndex}`;
+            const categoryContentSection = document.getElementById(categorySectionId);
+            if (categoryContentSection) {
+                categoryContentSection.classList.remove('hidden');
+            }
             showMessage('Subcategory added. Don\'t forget to save!', 'success');
         }
 
@@ -560,6 +593,13 @@
             if (!node.subcategories) node.subcategories = [];
             node.subcategories.push({ name: name.trim(), topics: [] });
             renderCategories();
+            // Show the content section if it was hidden
+            const pathString = path.join('-');
+            const sectionId = `section-${pathString}`;
+            const contentSection = document.getElementById(sectionId);
+            if (contentSection) {
+                contentSection.classList.remove('hidden');
+            }
             showMessage('Subcategory added. Don\'t forget to save!', 'success');
         }
 
@@ -576,6 +616,20 @@
             node.topics.push(topic);
             if (input) input.value = '';
             renderCategories();
+            // Show the content section if it was hidden
+            const sectionId = `section-${pathString}`;
+            const contentSection = document.getElementById(sectionId);
+            if (contentSection) {
+                contentSection.classList.remove('hidden');
+            }
+            // Also show parent category content if adding to a category
+            if (path.length === 1) {
+                const categorySectionId = `category-section-${path[0]}`;
+                const categoryContentSection = document.getElementById(categorySectionId);
+                if (categoryContentSection) {
+                    categoryContentSection.classList.remove('hidden');
+                }
+            }
             showMessage('Topic added. Don\'t forget to save!', 'success');
         }
 

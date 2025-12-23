@@ -273,25 +273,30 @@
         }
 
         .topic-list {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
+            display: block;
             margin-top: 32px;
         }
 
-        @media (max-width: 768px) {
-            .topic-list {
-                grid-template-columns: 1fr;
-            }
+        .topics-tabs-container {
+            margin-bottom: 24px;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 12px;
+            position: sticky;
+            top: 0;
+            background: var(--bg);
+            z-index: 10;
+            padding-top: 12px;
+            margin-top: -12px;
+        }
+
+        .topics-content-container {
+            margin-top: 24px;
         }
 
         .topic-tabs {
             display: flex;
             gap: 10px;
-            margin-bottom: 24px;
             flex-wrap: wrap;
-            border-bottom: 2px solid var(--border);
-            padding-bottom: 12px;
         }
 
         .topic-tab {
@@ -300,24 +305,35 @@
             font-size: 0.9375rem;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: background-color 0.2s, color 0.2s;
             border: 2px solid transparent;
             background: var(--bg);
             color: var(--text);
             letter-spacing: -0.01em;
             min-width: fit-content;
             white-space: nowrap;
+            box-sizing: border-box;
+            position: relative;
         }
 
         .topic-tab:hover {
             background: var(--bg-hover);
-            transform: translateY(-1px);
         }
 
         .topic-tab.active {
-            border-color: currentColor;
-            font-weight: 600;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            color: currentColor;
+            background: var(--bg);
+        }
+
+        .topic-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -14px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: currentColor;
+            border-radius: 2px 2px 0 0;
         }
 
         .topic-category-content {
@@ -328,22 +344,110 @@
             display: block;
         }
 
-        .subcategory-header-section {
-            margin-top: 24px;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 2px solid var(--border);
+        .topic-tree {
+            display: block;
         }
 
-        .subcategory-header-section:first-child {
-            margin-top: 0;
+        .tree-node {
+            margin-bottom: 8px;
+        }
+
+        .tree-header {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .tree-header:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent);
+        }
+
+        .tree-header::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: var(--accent);
+            border-radius: 8px 0 0 8px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .tree-header:hover::before {
+            opacity: 1;
+        }
+
+        .tree-toggle {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            border-radius: 4px;
+            background: var(--surface);
+            color: var(--text-light);
+            font-size: 0.75rem;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .tree-toggle:hover {
+            background: var(--bg-hover);
+            color: var(--text);
+        }
+
+        .tree-toggle.collapsed::before {
+            content: '▶';
+        }
+
+        .tree-toggle.expanded::before {
+            content: '▼';
+        }
+
+        .tree-title {
+            font-weight: 600;
+            font-size: 0.9375rem;
+            color: var(--text);
+            flex: 1;
+        }
+
+        .tree-content {
+            margin-left: 36px;
+            padding-left: 16px;
+            border-left: 2px solid var(--border);
+            margin-top: 8px;
+            margin-bottom: 16px;
+        }
+
+        .tree-content.collapsed {
+            display: none;
+        }
+
+        .tree-content.expanded {
+            display: block;
+        }
+
+        .tree-topic-item {
+            margin-left: 0;
+            margin-bottom: 12px;
         }
 
         .subcategory-topics-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 12px;
+            margin-top: 8px;
         }
 
         @media (max-width: 768px) {
@@ -1065,7 +1169,12 @@
 
                 <div class="divider"></div>
 
-                <div class="section-title">Topics</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <div class="section-title" style="margin: 0;">Topics</div>
+                    <button class="btn btn-secondary" onclick="refreshTopicsFromJson()" style="font-size: 0.875rem; padding: 8px 16px;">
+                        🔄 Refresh from Admin
+                    </button>
+                </div>
                 <div id="topics-list" class="topic-list"></div>
 
                 <div class="divider"></div>
@@ -1319,8 +1428,10 @@
                         }
                     }
                     
+                    console.log('Total topics:', interview.topics.length);
                     interview.topics.forEach(topic => {
                         const category = topic.category_name || null;
+                        console.log('Topic:', topic.topic_name, 'Category:', category);
                         if (category) {
                             if (category.includes(' > ')) {
                                 const parts = category.split(' > ');
@@ -1347,6 +1458,13 @@
                         }
                     });
                     
+                    console.log('Topics by main category:', topicsByMainCategory);
+                    console.log('Uncategorized:', uncategorized);
+                    // Debug: Log structure for Data Manipulation & Analysis
+                    if (topicsByMainCategory['Data Manipulation & Analysis']) {
+                        console.log('Data Manipulation & Analysis structure:', JSON.stringify(topicsByMainCategory['Data Manipulation & Analysis'], null, 2));
+                    }
+                    
                     // Generate HTML with tabs and category content
                     let tabsHtml = '';
                     let contentHtml = '';
@@ -1365,7 +1483,25 @@
                         '#FFB6C1'  // Light Pink
                     ];
                     
-                    const mainCategories = Object.keys(topicsByMainCategory);
+                    // Get category order from topics.json to preserve admin page order
+                    let categoryOrder = [];
+                    try {
+                        const orderResponse = await fetch('/api/admin/topics');
+                        const orderData = await orderResponse.json();
+                        if (orderData.categories) {
+                            categoryOrder = orderData.categories.map(cat => cat.name);
+                        }
+                    } catch (err) {
+                        console.log('Could not load category order:', err);
+                    }
+                    
+                    // Sort mainCategories by the order in topics.json
+                    const mainCategoriesUnsorted = Object.keys(topicsByMainCategory);
+                    const mainCategories = categoryOrder.length > 0 
+                        ? categoryOrder.filter(cat => mainCategoriesUnsorted.includes(cat))
+                            .concat(mainCategoriesUnsorted.filter(cat => !categoryOrder.includes(cat)))
+                        : mainCategoriesUnsorted;
+                    
                     const hasUncategorized = uncategorized.length > 0;
                     
                     // Generate tabs only if we have categories or uncategorized topics
@@ -1397,64 +1533,141 @@
                         }
                     }
                     
-                    // Recursive function to render nested structure
-                    function renderNestedStructure(node, color, depth = 0) {
+                    // Recursive function to render nested structure as a tree
+                    // UNIVERSAL RULES (applies to all categories, now and future):
+                    // - Arrays = Topics → Always render as expandable tree nodes
+                    // - Objects = Subcategories → Always render as expandable tree nodes (recursive)
+                    // - Direct topics (_default) → Always render as "Topics" tree node
+                    // - Main categories (depth 0) → Collapsed by default
+                    // - All other levels → Expanded by default if they have content
+                    // This function handles ANY depth of nesting automatically
+                    function renderNestedStructure(node, color, depth = 0, parentId = '') {
                         let html = '';
-                        const indent = depth * 20;
-                        const fontSize = Math.max(0.875, 1.125 - (depth * 0.05));
-                        const opacity = Math.max(0.7, 1 - (depth * 0.1));
+                        let nodeIndex = 0;
                         
-                        Object.keys(node).forEach(key => {
-                            if (key === '_default') return; // Skip default keys
-                            
-                            const value = node[key];
-                            
-                            if (Array.isArray(value)) {
-                                // This is a leaf node with topics
-                                html += '<div class="subcategory-topics-grid">';
-                                value.forEach(topic => {
+                        if (!node || typeof node !== 'object') {
+                            console.warn('Invalid node in renderNestedStructure:', node);
+                            return html;
+                        }
+                        
+                        const keys = Object.keys(node);
+                        if (keys.length === 0) {
+                            return html;
+                        }
+                        
+                        // Universal rule: Process all keys, treating arrays as topics and objects as subcategories
+                        keys.forEach(key => {
+                            if (key === '_default') {
+                                // Direct topics - always render as "Topics" tree node
+                                if (node['_default'] && Array.isArray(node['_default']) && node['_default'].length > 0) {
+                                    const nodeId = parentId ? `${parentId}-topics` : `topics-${nodeIndex}`;
                                     html += `
-                                        <div class="topic-item topic-subtopic" style="border-left: 3px solid ${color};">
-                                            <div class="topic-header">
-                                                <div class="topic-content">
-                                                    <div class="topic-name">${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</div>
-                                                    <div class="topic-tags">
-                                                        <span class="tag tag-priority-${topic.priority || 'medium'}">${topic.priority || 'medium'}</span>
-                                                        <span class="tag tag-status tag-${topic.status || 'pending'}">${topic.status || 'pending'}</span>
-                                                        ${topic.notes ? `<span style="font-size: 0.75rem; color: var(--text-light);">${topic.notes}</span>` : ''}
-                                                    </div>
-                                                </div>
-                                                <div class="topic-actions">
-                                                    <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
-                                                        ${topic.ai_guidance ? '🔄' : '✨'}
-                                                    </button>
-                                                    <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
-                                                        ${topic.status === 'completed' ? 'Undo' : 'Done'}
-                                                    </button>
-                                                    <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
+                                        <div class="tree-node">
+                                            <div class="tree-header" onclick="toggleTreeNode('${nodeId}')">
+                                                <div class="tree-toggle expanded" id="toggle-${nodeId}"></div>
+                                                <div class="tree-title" style="color: ${color}; font-size: ${depth === 0 ? '1rem' : '0.9375rem'}; font-weight: ${depth === 0 ? '600' : '500'};">
+                                                    Topics
                                                 </div>
                                             </div>
-                                            ${topic.ai_guidance ? `
-                                                <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
-                                                    📖 View Guidance
-                                                </button>
-                                            ` : ''}
+                                            <div class="tree-content expanded" id="content-${nodeId}">
+                                                <div class="subcategory-topics-grid">
+                                    `;
+                                    node['_default'].forEach(topic => {
+                                        html += renderTopicCard(topic, color);
+                                    });
+                                    html += `
+                                                </div>
+                                            </div>
                                         </div>
                                     `;
-                                });
-                                html += '</div>';
-                            } else if (typeof value === 'object') {
-                                // This is a nested structure - render header and recurse
+                                }
+                                return;
+                            }
+                            
+                            const value = node[key];
+                            const nodeId = parentId ? `${parentId}-${nodeIndex}` : `node-${nodeIndex}`;
+                            nodeIndex++;
+                            
+                            if (Array.isArray(value)) {
+                                // Universal rule: Arrays are always topics, render as tree node
+                                if (value.length > 0) {
+                                    html += `
+                                        <div class="tree-node">
+                                            <div class="tree-header" onclick="toggleTreeNode('${nodeId}')">
+                                                <div class="tree-toggle expanded" id="toggle-${nodeId}"></div>
+                                                <div class="tree-title" style="color: ${color}; font-size: ${depth === 0 ? '1rem' : '0.9375rem'}; font-weight: ${depth === 0 ? '600' : '500'};">
+                                                    ${key}
+                                                </div>
+                                            </div>
+                                            <div class="tree-content expanded" id="content-${nodeId}">
+                                                <div class="subcategory-topics-grid">
+                                    `;
+                                    value.forEach(topic => {
+                                        html += renderTopicCard(topic, color);
+                                    });
+                                    html += `
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }
+                            } else if (typeof value === 'object' && value !== null) {
+                                // Universal rule: Objects are always subcategories, render as tree node
+                                const nestedContent = renderNestedStructure(value, color, depth + 1, nodeId);
+                                const hasTopics = Object.keys(value).some(k => Array.isArray(value[k]) && value[k].length > 0);
+                                
+                                // Main categories (depth 0) should be collapsed by default
+                                const isMainCategory = depth === 0;
+                                const defaultState = isMainCategory ? 'collapsed' : (hasTopics ? 'expanded' : 'collapsed');
+                                
                                 html += `
-                                    <div class="subcategory-header-section" style="margin-top: ${depth === 0 ? '20' : '16'}px; margin-bottom: ${depth === 0 ? '12' : '10'}px; padding-bottom: ${depth === 0 ? '8' : '6'}px; border-bottom: ${depth === 0 ? '2' : '1'}px solid var(--border); ${depth > 0 ? `margin-left: ${indent}px; border-left: 2px solid ${color}; padding-left: 12px;` : ''}">
-                                        <h${depth === 0 ? '3' : '4'} style="font-size: ${fontSize}rem; font-weight: 600; color: ${color}; margin: 0; opacity: ${opacity};">${key}</h${depth === 0 ? '3' : '4'}>
+                                    <div class="tree-node">
+                                        <div class="tree-header" onclick="toggleTreeNode('${nodeId}')">
+                                            <div class="tree-toggle ${defaultState}" id="toggle-${nodeId}"></div>
+                                            <div class="tree-title" style="color: ${color}; font-size: ${depth === 0 ? '1rem' : '0.9375rem'}; font-weight: ${depth === 0 ? '600' : '500'};">
+                                                ${key}
+                                            </div>
+                                        </div>
+                                        <div class="tree-content ${defaultState}" id="content-${nodeId}">
+                                            ${nestedContent}
+                                        </div>
                                     </div>
                                 `;
-                                html += renderNestedStructure(value, color, depth + 1);
                             }
                         });
                         
                         return html;
+                    }
+
+                    function renderTopicCard(topic, color) {
+                        return `
+                            <div class="topic-item tree-topic-item" style="border-left: 3px solid ${color};">
+                                <div class="topic-header">
+                                    <div class="topic-content">
+                                        <div class="topic-name">${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</div>
+                                        <div class="topic-tags">
+                                            <span class="tag tag-priority-${topic.priority || 'medium'}">${topic.priority || 'medium'}</span>
+                                            <span class="tag tag-status tag-${topic.status || 'pending'}">${topic.status || 'pending'}</span>
+                                            ${topic.notes ? `<span style="font-size: 0.75rem; color: var(--text-light);">${topic.notes}</span>` : ''}
+                                        </div>
+                                    </div>
+                                    <div class="topic-actions">
+                                        <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}">
+                                            ${topic.ai_guidance ? '🔄' : '✨'}
+                                        </button>
+                                        <button class="btn btn-ghost btn-mini" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                                            ${topic.status === 'completed' ? 'Undo' : 'Done'}
+                                        </button>
+                                        <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
+                                    </div>
+                                </div>
+                                ${topic.ai_guidance ? `
+                                    <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
+                                        📖 View Guidance
+                                    </button>
+                                ` : ''}
+                            </div>
+                        `;
                     }
                     
                     // Generate content for each main category
@@ -1466,9 +1679,14 @@
                         // Recursively render the nested structure
                         categoryContent = renderNestedStructure(topicsByMainCategory[mainCategory], color, 0);
                         
+                        console.log(`Category ${mainCategory} content:`, categoryContent);
+                        console.log(`Category ${mainCategory} structure:`, topicsByMainCategory[mainCategory]);
+                        
                         contentHtml += `
-                            <div class="topic-category-content ${index === 0 ? 'active' : ''}" id="content-${categoryId}">
-                                ${categoryContent}
+                            <div class="topic-category-content ${index === 0 ? 'active' : ''}" id="content-${categoryId}" style="${index === 0 ? 'display: block;' : 'display: none;'}">
+                                <div class="topic-tree">
+                                    ${categoryContent || '<div class="empty-state">No topics in this category</div>'}
+                                </div>
                             </div>
                         `;
                     });
@@ -1508,20 +1726,43 @@
                         });
                         
                         contentHtml += `
-                            <div class="topic-category-content ${categories.length === 0 ? 'active' : ''}" id="content-category-uncategorized" style="display: ${categories.length === 0 ? 'grid' : 'none'}; grid-template-columns: repeat(2, 1fr); gap: 16px;">
-                                ${uncategorizedContent}
+                            <div class="topic-category-content ${mainCategories.length === 0 ? 'active' : ''}" id="content-category-uncategorized" style="display: ${mainCategories.length === 0 ? 'block' : 'none'};">
+                                <div class="topic-tree">
+                                    <div class="subcategory-topics-grid">
+                                        ${uncategorizedContent}
+                                    </div>
+                                </div>
                             </div>
                         `;
                     }
                     
                     // Always show tabs if we have categories or uncategorized topics
-                    if (categories.length > 0 || hasUncategorized) {
+                    if (mainCategories.length > 0 || hasUncategorized) {
                         topicsListEl.innerHTML = `
-                            <div class="topic-tabs">
-                                ${tabsHtml}
+                            <div class="topics-tabs-container">
+                                <div class="topic-tabs">
+                                    ${tabsHtml}
+                                </div>
                             </div>
-                            ${contentHtml}
+                            <div class="topics-content-container">
+                                ${contentHtml}
+                            </div>
                         `;
+                        
+                        // Ensure first tab content is visible on load
+                        setTimeout(() => {
+                            if (mainCategories.length > 0) {
+                                const firstContent = document.getElementById('content-category-0');
+                                console.log('First content element:', firstContent);
+                                if (firstContent) {
+                                    firstContent.style.display = 'block';
+                                    firstContent.classList.add('active');
+                                    console.log('First content display set to block');
+                                } else {
+                                    console.error('First content element not found!');
+                                }
+                            }
+                        }, 100);
                     } else {
                         topicsListEl.innerHTML = '<div class="empty-state"><div class="empty-state-text">No topics yet</div></div>';
                     }
@@ -1557,6 +1798,58 @@
             loadInterviews();
         }
 
+        function toggleTreeNode(nodeId) {
+            const toggle = document.getElementById(`toggle-${nodeId}`);
+            const content = document.getElementById(`content-${nodeId}`);
+            if (toggle && content) {
+                const isExpanded = toggle.classList.contains('expanded');
+                if (isExpanded) {
+                    toggle.classList.remove('expanded');
+                    toggle.classList.add('collapsed');
+                    content.classList.remove('expanded');
+                    content.classList.add('collapsed');
+                } else {
+                    toggle.classList.remove('collapsed');
+                    toggle.classList.add('expanded');
+                    content.classList.remove('collapsed');
+                    content.classList.add('expanded');
+                }
+            }
+        }
+
+        async function refreshTopicsFromJson() {
+            if (!currentInterviewId) {
+                alert('No study material selected');
+                return;
+            }
+            
+            if (!confirm('This will replace all existing topics with topics from the admin configuration. Continue?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/interviews/${currentInterviewId}/refresh-topics`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    alert(data.message || 'Topics refreshed successfully');
+                    // Reload the interview detail to show updated topics
+                    loadInterviewDetail(currentInterviewId);
+                } else {
+                    const errorData = await response.json();
+                    alert('Error: ' + (errorData.error || 'Failed to refresh topics'));
+                }
+            } catch (error) {
+                console.error('Error refreshing topics:', error);
+                alert('Error refreshing topics: ' + error.message);
+            }
+        }
+
         window.switchTopicTab = function(categoryId) {
             console.log('Switching to tab:', categoryId);
             // Hide all content
@@ -1575,10 +1868,10 @@
             console.log('Content element:', content);
             if (content) {
                 content.classList.add('active');
-                content.style.display = 'grid';
+                content.style.display = 'block';
             }
             
-            // Add active class to selected tab
+            // Activate the tab
             const tab = document.getElementById(`tab-${categoryId}`);
             console.log('Tab element:', tab);
             if (tab) {

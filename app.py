@@ -291,6 +291,32 @@ def delete_topic(topic_id):
     conn.close()
     return jsonify({'message': 'Topic deleted successfully'})
 
+@app.route('/api/interviews/<int:interview_id>/refresh-topics', methods=['POST'])
+def refresh_topics(interview_id):
+    """Refresh topics for an interview from topics.json"""
+    conn = get_db()
+    interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
+    if not interview:
+        return jsonify({'error': 'Study material not found'}), 404
+    
+    # Delete existing topics
+    conn.execute('DELETE FROM topics WHERE interview_id = ?', (interview_id,))
+    
+    # Generate new topics from topics.json
+    topics = generate_common_topics(dict(interview).get('position', 'Data Scientist'))
+    topic_ids = []
+    for topic in topics:
+        cursor = conn.execute('''
+            INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (interview_id, topic['name'], topic.get('category', None), 
+              topic.get('priority', 'medium'), topic.get('notes', '')))
+        topic_ids.append(cursor.lastrowid)
+    
+    conn.commit()
+    conn.close()
+    return jsonify({'ids': topic_ids, 'topics': topics, 'message': f'{len(topics)} topics refreshed from topics.json'}), 200
+
 @app.route('/api/topics/<int:topic_id>/ai-guidance', methods=['POST'])
 def generate_ai_guidance(topic_id):
     """Generate AI-powered study guidance for a topic based on the position"""
@@ -393,13 +419,14 @@ def load_default_topics():
         node_name = node.get('name', '')
         current_path = path_parts + [node_name] if node_name else path_parts
         
-        # Check if this node has nested subcategories
+        # Process subcategories first (if any)
         if 'subcategories' in node and node.get('subcategories'):
             # Process each subcategory recursively
             for subcat in node.get('subcategories', []):
                 topics_list.extend(process_node(subcat, current_path))
-        else:
-            # This node has direct topics
+        
+        # Also process direct topics (if any) - this handles cases where a node has both subcategories and topics
+        if 'topics' in node and node.get('topics'):
             for i, topic_name in enumerate(node.get('topics', [])):
                 full_category = ' > '.join(current_path) if current_path else None
                 topics_list.append({
@@ -419,18 +446,8 @@ def load_default_topics():
             for category in data.get('categories', []):
                 category_name = category.get('name', '')
                 
-                # Check if category has subcategories (new structure)
-                if 'subcategories' in category and category.get('subcategories'):
-                    # Process recursively
-                    topics.extend(process_node(category, []))
-                elif 'topics' in category:
-                    # Legacy structure: topics directly under category
-                    for i, topic_name in enumerate(category.get('topics', [])):
-                        topics.append({
-                            'name': topic_name,
-                            'category': category_name,
-                            'priority': 'high' if i < 2 else 'medium'
-                        })
+                # Process recursively - this handles both subcategories and direct topics
+                topics.extend(process_node(category, []))
             
             # Add uncategorized topics
             for topic_name in data.get('uncategorized_topics', []):
@@ -479,12 +496,16 @@ def generate_common_topics(position):
     
     # First, try to load from topics.json
     json_topics = load_default_topics()
+    print(f"Loaded {len(json_topics)} topics from topics.json")
+    if json_topics:
+        print(f"Sample topic: {json_topics[0] if json_topics else 'None'}")
     
     groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
     
     if not groq_key or not Groq:
         # Fallback: return topics from JSON file, or hardcoded if JSON is empty
         if json_topics:
+            print("Returning topics from topics.json (no API key)")
             return json_topics[:20]  # Return up to 20 topics from JSON
         
         # Fallback to hardcoded topics if JSON is empty

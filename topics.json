@@ -38,7 +38,7 @@
             "Window functions (ROW_NUMBER, RANK, LAG)",
             "Subqueries & CTEs",
             "Query optimization basics",
-            "Translating business questions → SQL logic"
+            "Translating business questions \u2192 SQL logic"
           ]
         }
       ]
@@ -48,19 +48,10 @@
       "subcategories": [
         {
           "name": "Probability rules & distributions",
-          "subcategories": [
-            {
-              "name": "Normal",
-              "topics": []
-            },
-            {
-              "name": "Binomial",
-              "topics": []
-            },
-            {
-              "name": "Poisson",
-              "topics": []
-            }
+          "topics": [
+            "Normal",
+            "Binomial",
+            "Poisson"
           ]
         }
       ],
@@ -119,19 +110,11 @@
                   "subcategories": [
                     {
                       "name": "XGBoost",
-                      "topics": [
-                        "XGBoost Basics",
-                        "XGBoost Parameters",
-                        "XGBoost Performance"
-                      ]
+                      "topics": []
                     },
                     {
                       "name": "LightGBM",
-                      "topics": [
-                        "LightGBM Basics",
-                        "LightGBM Parameters",
-                        "LightGBM Performance"
-                      ]
+                      "topics": []
                     }
                   ]
                 }
@@ -165,8 +148,82 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Data Visualization & Communication",
+      "topics": [
+        "Matplotlib / Seaborn",
+        "Plotly (interactive dashboards)",
+        "Choosing the right chart",
+        "Telling a story with data",
+        "Avoiding misleading visuals",
+        "Executive-level summaries",
+        "Tableau / Power BI",
+        "Clear slide decks"
+      ]
+    },
+    {
+      "name": "Business & Product Thinking",
+      "topics": [
+        "Translating vague questions → measurable metrics",
+        "KPIs and success metrics",
+        "Funnel analysis",
+        "User behavior analysis",
+        "Experiment design in real products",
+        "Tradeoffs and assumptions"
+      ]
+    },
+    {
+      "name": "Data Engineering Basics",
+      "topics": [
+        "Data pipelines (ETL/ELT concepts)",
+        "Working with large datasets",
+        "Basics of Spark",
+        "Cloud data storage (S3 / Azure Blob / GCS)",
+        "Scheduling jobs (Airflow awareness)"
+      ]
+    },
+    {
+      "name": "Software & Collaboration Skills",
+      "topics": [
+        "Git (branching, pull requests)",
+        "Writing reproducible notebooks",
+        "Refactoring notebooks → scripts",
+        "Logging & basic testing",
+        "Code reviews"
+      ]
+    },
+    {
+      "name": "Interview-Specific Topics",
+      "subcategories": [
+        {
+          "name": "Coding Interviews (Moderate)",
+          "topics": [
+            "Basic algorithms (arrays, strings, dicts)",
+            "Simple recursion",
+            "Time & space complexity (big-O intuition)"
+          ]
+        },
+        {
+          "name": "Case & Take-Home Interviews",
+          "topics": [
+            "Messy data cleaning",
+            "Open-ended analysis",
+            "Writing conclusions clearly",
+            "Defending assumptions"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Optional but Valuable",
+      "topics": [
+        "NLP basics (TF-IDF, embeddings)",
+        "Time-series fundamentals",
+        "Privacy & ethics in data",
+        "Working with government / regulated data"
+      ]
     }
   ],
   "uncategorized_topics": []
 }
-
