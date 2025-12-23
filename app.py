@@ -483,36 +483,55 @@ def get_interviews():
 
 @app.route('/api/interviews', methods=['POST'])
 def create_interview():
-    data = request.json
-    company = data.get('company', '').strip()
-    # Default to generic US company if blank
-    if not company:
-        company = 'Generic Company (US)'
-    
-    interview_date = data.get('interview_date', '').strip()
-    # Allow empty interview date
-    
-    conn = get_db()
-    if USE_POSTGRESQL:
-        cursor = db_execute(conn, '''
-            INSERT INTO interviews (company, position, interview_date, created_at)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id
-        ''', (company, data.get('position', ''), 
-              interview_date if interview_date else None, datetime.now().isoformat()))
-        result = db_fetchone(cursor)
-        interview_id = result['id'] if result else None
-        cursor.close()
-    else:
-        cursor = db_execute(conn, '''
-            INSERT INTO interviews (company, position, interview_date, created_at)
-            VALUES (?, ?, ?, ?)
-        ''', (company, data.get('position', ''), 
-              interview_date if interview_date else None, datetime.now().isoformat()))
-        interview_id = db_lastrowid(cursor, conn)
-    conn.commit()
-    conn.close()
-    return jsonify({'id': interview_id, 'message': 'Study material created successfully'}), 201
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        company = data.get('company', '').strip()
+        # Default to generic US company if blank
+        if not company:
+            company = 'Generic Company (US)'
+        
+        interview_date = data.get('interview_date', '').strip()
+        # Allow empty interview date
+        
+        conn = get_db()
+        try:
+            if USE_POSTGRESQL:
+                cursor = db_execute(conn, '''
+                    INSERT INTO interviews (company, position, interview_date, created_at)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                ''', (company, data.get('position', ''), 
+                      interview_date if interview_date else None, datetime.now().isoformat()))
+                result = db_fetchone(cursor)
+                interview_id = result['id'] if result else None
+                cursor.close()
+            else:
+                cursor = db_execute(conn, '''
+                    INSERT INTO interviews (company, position, interview_date, created_at)
+                    VALUES (?, ?, ?, ?)
+                ''', (company, data.get('position', ''), 
+                      interview_date if interview_date else None, datetime.now().isoformat()))
+                interview_id = db_lastrowid(cursor, conn)
+            conn.commit()
+            conn.close()
+            
+            if not interview_id:
+                return jsonify({'error': 'Failed to create study material'}), 500
+            
+            return jsonify({'id': interview_id, 'message': 'Study material created successfully'}), 201
+        except Exception as db_error:
+            conn.close()
+            raise db_error
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        traceback.print_exc()
+        print(f"Error in create_interview: {error_msg}")
+        app.logger.error(f"Error creating interview: {error_msg}")
+        return jsonify({'error': f'Failed to create study material: {error_msg}'}), 500
 
 @app.route('/api/interviews/<int:interview_id>', methods=['GET'])
 def get_interview(interview_id):
@@ -1158,8 +1177,48 @@ def generate_study_plan(topics, days_until):
     
     return plan
 
+# Database initialization flag
+_db_initialized = False
+
+def ensure_db_initialized():
+    """Ensure database is initialized (only runs once)"""
+    global _db_initialized
+    if _db_initialized:
+        return
+    
+    try:
+        # Try a simple query to check if tables exist
+        conn = get_db()
+        cursor = db_execute(conn, "SELECT 1 FROM interviews LIMIT 1")
+        if USE_POSTGRESQL:
+            cursor.close()
+        conn.close()
+        _db_initialized = True
+        print("✅ Database tables already exist")
+    except Exception:
+        # Tables don't exist, initialize them
+        try:
+            init_db()
+            _db_initialized = True
+            print("✅ Database initialized successfully")
+        except Exception as e:
+            print(f"⚠️  Failed to initialize database: {e}")
+            import traceback
+            traceback.print_exc()
+
+# Initialize database on module load (works with gunicorn)
+try:
+    ensure_db_initialized()
+except Exception as e:
+    print(f"⚠️  Database initialization deferred: {e}")
+
+# Ensure database is initialized before first request (for Railway/gunicorn)
+@app.before_request
+def before_request():
+    """Ensure database is initialized before handling requests"""
+    ensure_db_initialized()
+
 if __name__ == '__main__':
-    init_db()
     # Use PORT from environment variable (Railway) or default to 5006 for local development
     port = int(os.getenv('PORT', 5006))
     debug = os.getenv('RAILWAY_ENVIRONMENT') is None  # Only debug mode in local development
