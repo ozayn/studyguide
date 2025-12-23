@@ -785,6 +785,99 @@
             color: var(--success);
         }
 
+        /* Checklist View Styles */
+        .checklist-view {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .checklist-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .checklist-item:hover {
+            background: #f9f9f9;
+        }
+
+        .checklist-checkbox {
+            width: 20px;
+            height: 20px;
+            min-width: 20px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+            margin-top: 2px;
+            transition: all 0.2s;
+            background: white;
+        }
+
+        .checklist-checkbox:hover {
+            border-color: #999;
+        }
+
+        .checklist-checkbox.checked {
+            background: #4CAF50;
+            border-color: #4CAF50;
+        }
+
+        .checklist-checkbox.checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .checklist-item-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .checklist-item-name {
+            font-size: 0.9375rem;
+            line-height: 1.5;
+            color: var(--text);
+            transition: all 0.2s;
+        }
+
+        .checklist-item-name.completed {
+            text-decoration: line-through;
+            color: #999;
+        }
+
+        .checklist-item-category {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 2px;
+        }
+
+        .checklist-section {
+            margin-bottom: 24px;
+        }
+
+        .checklist-section-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+
         .tag-pending {
             border-color: var(--pending);
             color: var(--pending);
@@ -1171,9 +1264,14 @@
 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                     <div class="section-title" style="margin: 0;">Topics</div>
-                    <button class="btn btn-secondary" onclick="refreshTopicsFromJson()" style="font-size: 0.75rem; padding: 4px 12px; background: #f5f5f5; color: #888; border: 1px solid #e0e0e0; font-weight: 400;">
-                        Refresh
-                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-secondary" onclick="toggleViewMode()" id="view-mode-btn" style="font-size: 0.75rem; padding: 4px 12px; background: #f5f5f5; color: #888; border: 1px solid #e0e0e0; font-weight: 400;">
+                            Checklist
+                        </button>
+                        <button class="btn btn-secondary" onclick="refreshTopicsFromJson()" style="font-size: 0.75rem; padding: 4px 12px; background: #f5f5f5; color: #888; border: 1px solid #e0e0e0; font-weight: 400;">
+                            Refresh
+                        </button>
+                    </div>
                 </div>
                 <div id="topics-list" class="topic-list"></div>
 
@@ -1190,6 +1288,7 @@
 
     <script>
         let currentInterviewId = null;
+        let viewMode = 'tree'; // 'tree' or 'checklist'
 
         function formatAIGuidance(text) {
             if (!text) return '';
@@ -1914,6 +2013,112 @@
                 console.error('Error deleting study material:', error);
                 alert('Failed to delete study material. Please try again.');
             }
+        }
+
+        function toggleViewMode() {
+            viewMode = viewMode === 'tree' ? 'checklist' : 'tree';
+            const btn = document.getElementById('view-mode-btn');
+            btn.textContent = viewMode === 'tree' ? 'Checklist' : 'Tree';
+            if (currentInterviewId) {
+                loadInterviewDetail(currentInterviewId);
+            }
+        }
+
+        function renderChecklistView(topics, container) {
+            if (!topics || topics.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-text">No topics yet</div></div>';
+                return;
+            }
+
+            // Group topics by category
+            const topicsByCategory = {};
+            const uncategorized = [];
+
+            topics.forEach(topic => {
+                const category = topic.category_name || null;
+                if (category) {
+                    const mainCategory = category.split(' > ')[0];
+                    if (!topicsByCategory[mainCategory]) {
+                        topicsByCategory[mainCategory] = [];
+                    }
+                    topicsByCategory[mainCategory].push(topic);
+                } else {
+                    uncategorized.push(topic);
+                }
+            });
+
+            // Get category order from topics.json
+            let categoryOrder = [];
+            try {
+                const orderResponse = await fetch('/api/topics');
+                if (orderResponse.ok) {
+                    const orderData = await orderResponse.json();
+                    if (orderData.categories) {
+                        categoryOrder = orderData.categories.map(cat => cat.name);
+                    }
+                }
+            } catch (err) {
+                // Silently fail
+            }
+
+            // Sort categories
+            const sortedCategories = categoryOrder.length > 0
+                ? categoryOrder.filter(cat => topicsByCategory[cat])
+                    .concat(Object.keys(topicsByCategory).filter(cat => !categoryOrder.includes(cat)))
+                : Object.keys(topicsByCategory);
+
+            let html = '<div class="checklist-view">';
+
+            // Render categorized topics
+            sortedCategories.forEach(category => {
+                const categoryTopics = topicsByCategory[category];
+                html += `
+                    <div class="checklist-section">
+                        <div class="checklist-section-title">${category}</div>
+                `;
+                categoryTopics.forEach(topic => {
+                    const isCompleted = topic.status === 'completed';
+                    html += `
+                        <div class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                            <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
+                            <div class="checklist-item-content">
+                                <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
+                                    ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
+                                </div>
+                                ${topic.category_name && topic.category_name.includes(' > ') ? `
+                                    <div class="checklist-item-category">${topic.category_name.split(' > ').slice(1).join(' > ')}</div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            });
+
+            // Render uncategorized topics
+            if (uncategorized.length > 0) {
+                html += `
+                    <div class="checklist-section">
+                        <div class="checklist-section-title">Other</div>
+                `;
+                uncategorized.forEach(topic => {
+                    const isCompleted = topic.status === 'completed';
+                    html += `
+                        <div class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                            <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
+                            <div class="checklist-item-content">
+                                <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
+                                    ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            html += '</div>';
+            container.innerHTML = html;
         }
 
         async function toggleTopicStatus(topicId, currentStatus) {
