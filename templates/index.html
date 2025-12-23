@@ -1359,13 +1359,18 @@
             // Set up form handlers after DOM is loaded
             const interviewForm = document.getElementById('interview-form');
             if (interviewForm) {
+                console.log('Interview form found, attaching handler');
                 interviewForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
+                    console.log('Form submitted');
+                    
                     const formData = {
                         company: document.getElementById('company').value,
                         position: document.getElementById('position').value,
                         interview_date: document.getElementById('interview_date').value
                     };
+                    
+                    console.log('Form data:', formData);
 
                     try {
                         const response = await fetch('/api/interviews', {
@@ -1374,11 +1379,16 @@
                             body: JSON.stringify(formData)
                         });
 
+                        console.log('Response status:', response.status);
+                        
                         if (response.ok) {
+                            const data = await response.json();
+                            console.log('Created interview:', data);
                             document.getElementById('interview-form').reset();
                             loadInterviews();
                         } else {
                             const errorData = await response.json().catch(() => ({ error: 'Failed to create study material' }));
+                            console.error('Error response:', errorData);
                             alert(errorData.error || 'Failed to create study material');
                         }
                     } catch (error) {
@@ -1386,44 +1396,50 @@
                         alert('Failed to create study material. Please try again.');
                     }
                 });
+            } else {
+                console.error('Interview form not found!');
             }
-        });
+            
+            // Set up topic form handler
+            const topicForm = document.getElementById('topic-form');
+            if (topicForm) {
+                topicForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    if (!currentInterviewId) return;
 
-        document.getElementById('topic-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            if (!currentInterviewId) return;
+                    const topicName = document.getElementById('topic_name').value.trim();
+                    const formData = {
+                        topic_name: topicName,
+                        priority: document.getElementById('topic_priority').value,
+                        notes: document.getElementById('topic_notes').value
+                    };
 
-            const topicName = document.getElementById('topic_name').value.trim();
-            const formData = {
-                topic_name: topicName,
-                priority: document.getElementById('topic_priority').value,
-                notes: document.getElementById('topic_notes').value
-            };
+                    try {
+                        const response = await fetch(`/api/interviews/${currentInterviewId}/topics`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(formData)
+                        });
 
-            try {
-                const response = await fetch(`/api/interviews/${currentInterviewId}/topics`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData)
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    document.getElementById('topic-form').reset();
-                    
-                    // Show success message if multiple topics were generated
-                    if (data.topics && data.topics.length > 1) {
-                        // Brief flash message could go here, but reloading is fine
+                        if (response.ok) {
+                            const data = await response.json();
+                            document.getElementById('topic-form').reset();
+                            
+                            // Show success message if multiple topics were generated
+                            if (data.topics && data.topics.length > 1) {
+                                // Brief flash message could go here, but reloading is fine
+                            }
+                            
+                            loadInterviewDetail(currentInterviewId);
+                        } else {
+                            const errorData = await response.json().catch(() => ({ error: 'Failed to add topic' }));
+                            alert(errorData.error || 'Failed to add topic');
+                        }
+                    } catch (error) {
+                        console.error('Error adding topic:', error);
+                        alert('Failed to add topic. Please try again.');
                     }
-                    
-                    loadInterviewDetail(currentInterviewId);
-                } else {
-                    const errorData = await response.json();
-                    alert(errorData.error || 'Failed to add topic');
-                }
-            } catch (error) {
-                console.error('Error adding topic:', error);
-                alert('Failed to add topic. Please try again.');
+                });
             }
         });
 
