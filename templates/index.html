@@ -785,26 +785,28 @@
             color: var(--success);
         }
 
-        /* Checklist View Styles */
+        /* Checklist View Styles - Simplified like admin view */
         .checklist-view {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+            list-style: none;
+            padding: 0;
+            margin: 0;
         }
 
         .checklist-item {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             gap: 12px;
             padding: 12px;
+            margin-bottom: 8px;
+            background: var(--bg);
             border-radius: 8px;
-            border: 1px solid transparent;
-            transition: all 0.2s;
+            border: 1px solid var(--border);
             cursor: pointer;
+            transition: all 0.2s;
         }
 
         .checklist-item:hover {
-            background: #f9f9f9;
+            background: #f5f5f5;
         }
 
         .checklist-checkbox {
@@ -815,9 +817,9 @@
             border-radius: 4px;
             cursor: pointer;
             position: relative;
-            margin-top: 2px;
             transition: all 0.2s;
             background: white;
+            flex-shrink: 0;
         }
 
         .checklist-checkbox:hover {
@@ -840,16 +842,9 @@
             font-weight: bold;
         }
 
-        .checklist-item-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
         .checklist-item-name {
+            flex: 1;
             font-size: 0.9375rem;
-            line-height: 1.5;
             color: var(--text);
             transition: all 0.2s;
         }
@@ -857,25 +852,6 @@
         .checklist-item-name.completed {
             text-decoration: line-through;
             color: #999;
-        }
-
-        .checklist-item-category {
-            font-size: 0.75rem;
-            color: #888;
-            margin-top: 2px;
-        }
-
-        .checklist-section {
-            margin-bottom: 24px;
-        }
-
-        .checklist-section-title {
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #666;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #eee;
         }
 
         .tag-pending {
@@ -2091,57 +2067,39 @@
                     .concat(Object.keys(topicsByCategory).filter(cat => !categoryOrder.includes(cat)))
                 : Object.keys(topicsByCategory);
 
-            let html = '<div class="checklist-view">';
+            let html = '<ul class="checklist-view">';
 
-            // Render categorized topics
+            // Render all topics in a simple flat list (like admin view)
+            // First render categorized topics
             sortedCategories.forEach(category => {
                 const categoryTopics = topicsByCategory[category];
-                html += `
-                    <div class="checklist-section">
-                        <div class="checklist-section-title">${category}</div>
-                `;
                 categoryTopics.forEach(topic => {
                     const isCompleted = topic.status === 'completed';
                     html += `
-                        <div class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                        <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
                             <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
-                            <div class="checklist-item-content">
-                                <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
-                                    ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
-                                </div>
-                                ${topic.category_name && topic.category_name.includes(' > ') ? `
-                                    <div class="checklist-item-category">${topic.category_name.split(' > ').slice(1).join(' > ')}</div>
-                                ` : ''}
+                            <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
+                                ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
                             </div>
-                        </div>
+                        </li>
                     `;
                 });
-                html += '</div>';
             });
 
             // Render uncategorized topics
-            if (uncategorized.length > 0) {
+            uncategorized.forEach(topic => {
+                const isCompleted = topic.status === 'completed';
                 html += `
-                    <div class="checklist-section">
-                        <div class="checklist-section-title">Other</div>
-                `;
-                uncategorized.forEach(topic => {
-                    const isCompleted = topic.status === 'completed';
-                    html += `
-                        <div class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
-                            <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
-                            <div class="checklist-item-content">
-                                <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
-                                    ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
-                                </div>
-                            </div>
+                    <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')">
+                        <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
+                        <div class="checklist-item-name ${isCompleted ? 'completed' : ''}">
+                            ${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}
                         </div>
-                    `;
-                });
-                html += '</div>';
-            }
+                    </li>
+                `;
+            });
 
-            html += '</div>';
+            html += '</ul>';
             container.innerHTML = html;
         }
 
