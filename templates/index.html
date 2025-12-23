@@ -1449,10 +1449,8 @@
                         }
                     }
                     
-                    console.log('Total topics:', interview.topics.length);
                     interview.topics.forEach(topic => {
                         const category = topic.category_name || null;
-                        console.log('Topic:', topic.topic_name, 'Category:', category);
                         if (category) {
                             if (category.includes(' > ')) {
                                 const parts = category.split(' > ');
@@ -1478,13 +1476,6 @@
                             uncategorized.push(topic);
                         }
                     });
-                    
-                    console.log('Topics by main category:', topicsByMainCategory);
-                    console.log('Uncategorized:', uncategorized);
-                    // Debug: Log structure for Data Manipulation & Analysis
-                    if (topicsByMainCategory['Data Manipulation & Analysis']) {
-                        console.log('Data Manipulation & Analysis structure:', JSON.stringify(topicsByMainCategory['Data Manipulation & Analysis'], null, 2));
-                    }
                     
                     // Generate HTML with tabs and category content
                     let tabsHtml = '';
@@ -1700,9 +1691,6 @@
                         // Recursively render the nested structure
                         categoryContent = renderNestedStructure(topicsByMainCategory[mainCategory], color, 0);
                         
-                        console.log(`Category ${mainCategory} content:`, categoryContent);
-                        console.log(`Category ${mainCategory} structure:`, topicsByMainCategory[mainCategory]);
-                        
                         contentHtml += `
                             <div class="topic-category-content ${index === 0 ? 'active' : ''}" id="content-${categoryId}" style="${index === 0 ? 'display: block;' : 'display: none;'}">
                                 <div class="topic-tree">
@@ -1774,13 +1762,9 @@
                         setTimeout(() => {
                             if (mainCategories.length > 0) {
                                 const firstContent = document.getElementById('content-category-0');
-                                console.log('First content element:', firstContent);
                                 if (firstContent) {
                                     firstContent.style.display = 'block';
                                     firstContent.classList.add('active');
-                                    console.log('First content display set to block');
-                                } else {
-                                    console.error('First content element not found!');
                                 }
                             }
                         }, 100);
@@ -1872,7 +1856,6 @@
         }
 
         window.switchTopicTab = function(categoryId) {
-            console.log('Switching to tab:', categoryId);
             // Hide all content
             document.querySelectorAll('.topic-category-content').forEach(content => {
                 content.classList.remove('active');
@@ -1886,7 +1869,6 @@
             
             // Show selected content
             const content = document.getElementById(`content-${categoryId}`);
-            console.log('Content element:', content);
             if (content) {
                 content.classList.add('active');
                 content.style.display = 'block';
@@ -1894,7 +1876,6 @@
             
             // Activate the tab
             const tab = document.getElementById(`tab-${categoryId}`);
-            console.log('Tab element:', tab);
             if (tab) {
                 tab.classList.add('active');
             }
