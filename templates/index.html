@@ -799,6 +799,12 @@
             padding: 0;
         }
 
+        .checklist-subcategory-header {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
         .checklist-item {
             display: flex;
             align-items: center;
@@ -2173,18 +2179,33 @@
                 return;
             }
 
-            // Group topics by category
-            const topicsByCategory = {};
+            // Build hierarchical structure: mainCategory > subcategory > topics
+            const hierarchicalStructure = {};
             const uncategorized = [];
 
             topics.forEach(topic => {
                 const category = topic.category_name || null;
-                if (category) {
-                    const mainCategory = category.split(' > ')[0];
-                    if (!topicsByCategory[mainCategory]) {
-                        topicsByCategory[mainCategory] = [];
+                if (category && category.includes(' > ')) {
+                    const parts = category.split(' > ');
+                    const mainCategory = parts[0];
+                    const subcategory = parts.slice(1).join(' > '); // Handle nested subcategories
+                    
+                    if (!hierarchicalStructure[mainCategory]) {
+                        hierarchicalStructure[mainCategory] = {};
                     }
-                    topicsByCategory[mainCategory].push(topic);
+                    if (!hierarchicalStructure[mainCategory][subcategory]) {
+                        hierarchicalStructure[mainCategory][subcategory] = [];
+                    }
+                    hierarchicalStructure[mainCategory][subcategory].push(topic);
+                } else if (category) {
+                    // Category without subcategory - treat as direct topics
+                    if (!hierarchicalStructure[category]) {
+                        hierarchicalStructure[category] = {};
+                    }
+                    if (!hierarchicalStructure[category]['_default']) {
+                        hierarchicalStructure[category]['_default'] = [];
+                    }
+                    hierarchicalStructure[category]['_default'].push(topic);
                 } else {
                     uncategorized.push(topic);
                 }
@@ -2217,11 +2238,18 @@
                 // Silently fail
             }
 
-            // Sort categories
+            // Sort categories - show all categories from topics.json, even if they don't have topics yet
             const sortedCategories = categoryOrder.length > 0
-                ? categoryOrder.filter(cat => topicsByCategory[cat])
-                    .concat(Object.keys(topicsByCategory).filter(cat => !categoryOrder.includes(cat)))
-                : Object.keys(topicsByCategory);
+                ? categoryOrder  // Show all categories in order from topics.json
+                    .concat(Object.keys(hierarchicalStructure).filter(cat => !categoryOrder.includes(cat)))
+                : Object.keys(hierarchicalStructure);
+            
+            // Ensure all categories from topics.json are initialized in hierarchicalStructure
+            sortedCategories.forEach(cat => {
+                if (!hierarchicalStructure[cat]) {
+                    hierarchicalStructure[cat] = {};
+                }
+            });
 
             // Calculate overall progress
             const totalTopics = topics.length;
@@ -2241,48 +2269,93 @@
                 <ul class="checklist-view">
             `;
 
-            // Render categorized topics with category headers
-            sortedCategories.forEach((category, index) => {
-                const categoryTopics = topicsByCategory[category];
-                const categoryCompleted = categoryTopics.filter(t => t.status === 'completed').length;
-                const categoryTotal = categoryTopics.length;
-                const categoryProgress = categoryTotal > 0 ? Math.round((categoryCompleted / categoryTotal) * 100) : 0;
-                const color = categoryColors[index % categoryColors.length];
+            // Render hierarchical structure: main categories > subcategories > topics
+            sortedCategories.forEach((mainCategory, mainIndex) => {
+                const categoryData = hierarchicalStructure[mainCategory];
+                const color = categoryColors[mainIndex % categoryColors.length];
                 
+                // Calculate main category totals
+                let mainCategoryTotal = 0;
+                let mainCategoryCompleted = 0;
+                Object.values(categoryData).forEach(subcategoryTopics => {
+                    mainCategoryTotal += subcategoryTopics.length;
+                    mainCategoryCompleted += subcategoryTopics.filter(t => t.status === 'completed').length;
+                });
+                
+                // Main category header - always show, even if empty
+                const categoryDisplayName = mainCategory || 'Uncategorized';
                 html += `
-                    <li class="checklist-category-header" style="margin-top: ${index > 0 ? '24px' : '0'}; margin-bottom: 12px; padding: 12px 16px; background: ${color}15; border-left: 3px solid ${color}; border-radius: 8px;">
+                    <li class="checklist-category-header" style="margin-top: ${mainIndex > 0 ? '24px' : '0'}; margin-bottom: 12px; padding: 12px 16px; background: ${color}15; border-left: 3px solid ${color}; border-radius: 8px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div style="font-weight: 600; font-size: 0.9375rem; color: var(--text);">${category}</div>
-                            <div style="font-size: 0.75rem; color: var(--text-light);">${categoryCompleted}/${categoryTotal}</div>
+                            <div style="font-weight: 600; font-size: 0.9375rem; color: var(--text);">${categoryDisplayName}</div>
+                            <div style="font-size: 0.75rem; color: var(--text-light);">${mainCategoryCompleted}/${mainCategoryTotal}</div>
                         </div>
                     </li>
                 `;
                 
-                // Sort topics by priority (high first) then by completion status (pending first)
-                const priorityOrder = { 'high': 3, 'medium': 2, 'low': 1 };
-                categoryTopics.sort((a, b) => {
-                    const priorityDiff = (priorityOrder[b.priority] || 2) - (priorityOrder[a.priority] || 2);
-                    if (priorityDiff !== 0) return priorityDiff;
-                    // If same priority, show pending first
-                    if (a.status === 'completed' && b.status !== 'completed') return 1;
-                    if (a.status !== 'completed' && b.status === 'completed') return -1;
-                    return 0;
-                });
+                // Get subcategories and sort them
+                const subcategories = Object.keys(categoryData);
                 
-                categoryTopics.forEach(topic => {
-                    const isCompleted = topic.status === 'completed';
-                    const priority = topic.priority || 'medium';
+                // If category has no topics, show empty state
+                if (subcategories.length === 0 || mainCategoryTotal === 0) {
                     html += `
-                        <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')" style="border-left: 3px solid ${isCompleted ? 'var(--success)' : (priority === 'high' ? color : 'transparent')};">
-                            <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
-                            <div class="checklist-item-name ${isCompleted ? 'completed' : ''}" style="flex: 1;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span>${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</span>
-                                    ${priority === 'high' && !isCompleted ? `<span class="tag tag-priority-high" style="font-size: 0.625rem; padding: 2px 6px;">High</span>` : ''}
-                                </div>
-                            </div>
+                        <li class="checklist-item" style="padding-left: 16px; opacity: 0.6; font-style: italic; color: var(--text-light);">
+                            <div style="padding: 8px;">No topics in this category yet</div>
                         </li>
                     `;
+                }
+                
+                subcategories.forEach((subcategory, subIndex) => {
+                    const subcategoryTopics = categoryData[subcategory];
+                    const subcategoryCompleted = subcategoryTopics.filter(t => t.status === 'completed').length;
+                    const subcategoryTotal = subcategoryTopics.length;
+                    
+                    // Subcategory header (only show if not "_default" and has a name)
+                    if (subcategory !== '_default' && subcategory.trim()) {
+                        html += `
+                            <li class="checklist-subcategory-header" style="margin-top: 8px; margin-bottom: 6px; padding: 8px 16px 8px 32px; background: ${color}08; border-left: 2px solid ${color}80; border-radius: 6px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div style="font-weight: 500; font-size: 0.8125rem; color: var(--text-light);">${subcategory}</div>
+                                    <div style="font-size: 0.6875rem; color: var(--text-light); opacity: 0.7;">${subcategoryCompleted}/${subcategoryTotal}</div>
+                                </div>
+                            </li>
+                        `;
+                    }
+                    
+                    // Sort topics by priority (high first) then by completion status (pending first)
+                    const priorityOrder = { 'high': 3, 'medium': 2, 'low': 1 };
+                    subcategoryTopics.sort((a, b) => {
+                        const priorityDiff = (priorityOrder[b.priority] || 2) - (priorityOrder[a.priority] || 2);
+                        if (priorityDiff !== 0) return priorityDiff;
+                        // If same priority, show pending first
+                        if (a.status === 'completed' && b.status !== 'completed') return 1;
+                        if (a.status !== 'completed' && b.status === 'completed') return -1;
+                        return 0;
+                    });
+                    
+                    // Render topics with indentation if under subcategory
+                    subcategoryTopics.forEach(topic => {
+                        const isCompleted = topic.status === 'completed';
+                        const priority = (topic.priority || 'medium').toLowerCase();
+                        const isHighPriority = priority === 'high';
+                        const indent = subcategory !== '_default' && subcategory.trim() ? '32px' : '16px';
+                        // Use category color for all items (consistent), green when completed
+                        const borderColor = isCompleted ? 'var(--success)' : color;
+                        html += `
+                            <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')" 
+                                data-category-color="${color}" 
+                                data-priority="${priority}"
+                                style="border-left: 3px solid ${borderColor}; padding-left: ${indent};">
+                                <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
+                                <div class="checklist-item-name ${isCompleted ? 'completed' : ''}" style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span>${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</span>
+                                        ${isHighPriority && !isCompleted ? `<span class="tag tag-priority-high" style="font-size: 0.625rem; padding: 2px 6px;">High</span>` : ''}
+                                    </div>
+                                </div>
+                            </li>
+                        `;
+                    });
                 });
             });
 
@@ -2300,14 +2373,18 @@
                 
                 uncategorized.forEach(topic => {
                     const isCompleted = topic.status === 'completed';
-                    const priority = topic.priority || 'medium';
+                    const priority = (topic.priority || 'medium').toLowerCase();
+                    const isHighPriority = priority === 'high';
                     html += `
-                        <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')" style="border-left: 3px solid ${isCompleted ? 'var(--success)' : 'transparent'};">
+                        <li class="checklist-item" onclick="toggleTopicStatus(${topic.id}, '${topic.status}')" 
+                            data-category-color="transparent" 
+                            data-priority="${priority}"
+                            style="border-left: 3px solid ${isCompleted ? 'var(--success)' : 'transparent'};">
                             <div class="checklist-checkbox ${isCompleted ? 'checked' : ''}"></div>
                             <div class="checklist-item-name ${isCompleted ? 'completed' : ''}" style="flex: 1;">
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <span>${(topic.topic_name && topic.topic_name !== 'null' && topic.topic_name !== 'NULL') ? topic.topic_name : 'Untitled Topic'}</span>
-                                    ${priority === 'high' && !isCompleted ? `<span class="tag tag-priority-high" style="font-size: 0.625rem; padding: 2px 6px;">High</span>` : ''}
+                                    ${isHighPriority && !isCompleted ? `<span class="tag tag-priority-high" style="font-size: 0.625rem; padding: 2px 6px;">High</span>` : ''}
                                 </div>
                             </div>
                         </li>
@@ -2340,12 +2417,67 @@
             
             // Update all category progress headers
             document.querySelectorAll('.checklist-category-header').forEach(categoryHeader => {
-                const categoryItems = Array.from(categoryHeader.parentElement.querySelectorAll('.checklist-item'));
+                // Find all checklist items that belong to this category (between this header and next category header)
+                let categoryItems = [];
+                let currentElement = categoryHeader.nextElementSibling;
+                
+                while (currentElement) {
+                    // Stop at next main category header
+                    if (currentElement.classList.contains('checklist-category-header')) {
+                        break;
+                    }
+                    // Collect all checklist items (including those under subcategories)
+                    // Exclude empty state messages (they don't have checkboxes)
+                    if (currentElement.classList.contains('checklist-item') && 
+                        currentElement.querySelector('.checklist-checkbox')) {
+                        categoryItems.push(currentElement);
+                    }
+                    currentElement = currentElement.nextElementSibling;
+                }
+                
                 const categoryChecked = categoryItems.filter(item => item.querySelector('.checklist-checkbox.checked')).length;
                 const categoryTotal = categoryItems.length;
-                const categoryCount = categoryHeader.querySelector('div:last-child');
-                if (categoryCount) {
-                    categoryCount.textContent = `${categoryChecked}/${categoryTotal}`;
+                
+                // Find the count div - it's the second div child of the flex container
+                const headerContent = categoryHeader.querySelector('div');
+                if (headerContent && headerContent.children.length >= 2) {
+                    const countDiv = headerContent.children[1]; // Second child is the count
+                    if (countDiv) {
+                        countDiv.textContent = `${categoryChecked}/${categoryTotal}`;
+                    }
+                }
+            });
+            
+            // Update all subcategory progress headers
+            document.querySelectorAll('.checklist-subcategory-header').forEach(subcategoryHeader => {
+                // Find all checklist items that belong to this subcategory (between this header and next header)
+                let subcategoryItems = [];
+                let currentElement = subcategoryHeader.nextElementSibling;
+                
+                while (currentElement) {
+                    // Stop at next category or subcategory header
+                    if (currentElement.classList.contains('checklist-category-header') || 
+                        currentElement.classList.contains('checklist-subcategory-header')) {
+                        break;
+                    }
+                    // Only collect items that have checkboxes (exclude empty states)
+                    if (currentElement.classList.contains('checklist-item') &&
+                        currentElement.querySelector('.checklist-checkbox')) {
+                        subcategoryItems.push(currentElement);
+                    }
+                    currentElement = currentElement.nextElementSibling;
+                }
+                
+                const subcategoryChecked = subcategoryItems.filter(item => item.querySelector('.checklist-checkbox.checked')).length;
+                const subcategoryTotal = subcategoryItems.length;
+                
+                // Find the count div - it's the second div child of the flex container
+                const headerContent = subcategoryHeader.querySelector('div');
+                if (headerContent && headerContent.children.length >= 2) {
+                    const countDiv = headerContent.children[1]; // Second child is the count
+                    if (countDiv) {
+                        countDiv.textContent = `${subcategoryChecked}/${subcategoryTotal}`;
+                    }
                 }
             });
         }
@@ -2423,11 +2555,14 @@
             
             // Update border color for checklist items
             if (topicItem && topicItem.classList.contains('checklist-item')) {
+                // Get category color from data attribute
+                const categoryColor = topicItem.getAttribute('data-category-color') || 'transparent';
+                
                 if (newStatus === 'completed') {
                     topicItem.style.borderLeftColor = 'var(--success)';
                 } else {
-                    const priority = topicItem.querySelector('.tag-priority-high');
-                    topicItem.style.borderLeftColor = priority ? topicItem.style.borderLeftColor || 'transparent' : 'transparent';
+                    // All items use category color (consistent), green only when completed
+                    topicItem.style.borderLeftColor = categoryColor;
                 }
                 
                 // Update progress bars
@@ -2473,11 +2608,14 @@
                     
                     // Revert border color for checklist items
                     if (topicItem && topicItem.classList.contains('checklist-item')) {
+                        // Get category color from data attribute
+                        const categoryColor = topicItem.getAttribute('data-category-color') || 'transparent';
+                        
                         if (actualCurrentStatus === 'completed') {
                             topicItem.style.borderLeftColor = 'var(--success)';
                         } else {
-                            const priority = topicItem.querySelector('.tag-priority-high');
-                            topicItem.style.borderLeftColor = priority ? topicItem.style.borderLeftColor || 'transparent' : 'transparent';
+                            // All items use category color (consistent)
+                            topicItem.style.borderLeftColor = categoryColor;
                         }
                         updateChecklistProgress();
                     }
@@ -2519,11 +2657,14 @@
                 
                 // Revert border color for checklist items
                 if (topicItem && topicItem.classList.contains('checklist-item')) {
+                    // Get category color from data attribute
+                    const categoryColor = topicItem.getAttribute('data-category-color') || 'transparent';
+                    
                     if (actualCurrentStatus === 'completed') {
                         topicItem.style.borderLeftColor = 'var(--success)';
                     } else {
-                        const priority = topicItem.querySelector('.tag-priority-high');
-                        topicItem.style.borderLeftColor = priority ? topicItem.style.borderLeftColor || 'transparent' : 'transparent';
+                        // All items use category color (consistent)
+                        topicItem.style.borderLeftColor = categoryColor;
                     }
                     updateChecklistProgress();
                 }

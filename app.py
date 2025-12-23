@@ -775,14 +775,23 @@ def generate_ai_guidance(topic_id):
     position = dict(interview).get('position', 'Data Scientist')
     topic_name = dict(topic).get('topic_name', '')
     
-    prompt = f"""You are an interview preparation coach. For a {position} position at a generic company, what are the SPECIFIC technical skills and concepts someone needs to know about {topic_name}?
+    prompt = f"""You are an expert interview preparation coach specializing in {position} roles. Provide comprehensive, interview-focused guidance for: {topic_name}
 
-Break down {topic_name} into granular, learnable topics. For each subtopic, provide:
-- The specific skill or concept name
-- What you need to know about it for interviews
-- Practical application or interview focus
+For this topic, break it down into specific, actionable learning points that are commonly tested in interviews. For each point, include:
 
-Format as clear bullet points. Be very specific - break down broad topics into individual learnable skills. Focus on technical skills that can be studied and practiced separately."""
+1. **Core Concept**: What is it? (1-2 sentences)
+2. **Interview Focus**: What specific aspects are typically tested? (common questions, problem types, edge cases)
+3. **Practical Application**: How is this used in real work? (examples, use cases)
+4. **Key Details to Know**: Important nuances, gotchas, or advanced points
+
+Structure your response as:
+- Use **bold** for subtopic names
+- Use bullet points for details under each subtopic
+- Be specific and actionable - focus on what candidates actually need to know
+- Include concrete examples when helpful
+- Prioritize interview-relevant information over theoretical depth
+
+Keep it concise but comprehensive - aim for 3-5 main subtopics with 2-4 key points each. Focus on practical knowledge that helps someone prepare effectively for interviews."""
 
     # Try Groq first (fastest, good free tier)
     groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
@@ -792,10 +801,10 @@ Format as clear bullet points. Be very specific - break down broad topics into i
             response = client.chat.completions.create(
                 model="llama-3.1-8b-instant",  # Fast and free
                 messages=[
-                    {"role": "system", "content": "You are a helpful interview preparation coach. Provide structured, practical guidance focused on what's actually tested in interviews. Be specific and actionable."},
+                    {"role": "system", "content": "You are an expert interview preparation coach with deep knowledge of technical interviews. Your guidance is practical, interview-focused, and actionable. You break down complex topics into learnable components, emphasize what's actually tested, and provide concrete examples. You use clear formatting with bold headers and bullet points."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=400,
+                max_tokens=500,
                 temperature=0.7
             )
             ai_guidance = response.choices[0].message.content.strip()
@@ -816,11 +825,11 @@ Format as clear bullet points. Be very specific - break down broad topics into i
         try:
             genai.configure(api_key=gemini_key)
             model = genai.GenerativeModel('gemini-pro')
-            full_prompt = f"You are a helpful interview preparation coach. Provide concise, practical guidance.\n\n{prompt}"
+            full_prompt = f"You are an expert interview preparation coach specializing in technical roles. Provide comprehensive, interview-focused guidance with clear structure and practical examples.\n\n{prompt}"
             response = model.generate_content(
                 full_prompt,
                 generation_config={
-                    'max_output_tokens': 200,
+                    'max_output_tokens': 400,
                     'temperature': 0.7,
                 }
             )
@@ -972,30 +981,36 @@ def generate_common_topics(position):
     try:
         client = Groq(api_key=groq_key)
         
-        prompt = f"""For a {position} position interview at a generic company, provide a hierarchical list of technical skills organized by main categories.
+        prompt = f"""You are an expert technical recruiter and interview coach. For a {position} position, generate a comprehensive list of interview topics organized by category.
 
-Format your response as follows:
+Requirements:
+- Focus on skills and concepts that are COMMONLY TESTED in real interviews
+- Prioritize practical, hands-on skills over theoretical knowledge
+- Include both fundamental concepts and commonly-asked advanced topics
+- Each subtopic should be specific enough to study independently
+
+Format your response EXACTLY as follows (use colons after category names):
 CATEGORY_NAME:
-- Subtopic 1
-- Subtopic 2
-- Subtopic 3
+- Specific subtopic 1
+- Specific subtopic 2
+- Specific subtopic 3
 
 CATEGORY_NAME:
-- Subtopic 1
-- Subtopic 2
+- Specific subtopic 1
+- Specific subtopic 2
 
-Each category should be a main topic area (e.g., "Core Programming", "Data Manipulation", "Machine Learning", "Statistics", etc.).
-Each subtopic should be a specific, actionable skill that can be studied independently.
+Provide 6-8 main categories (e.g., "Core Programming", "Data Manipulation & Analysis", "Machine Learning", "Statistics & Probability", "System Design", "SQL & Databases", etc.).
+Each category should have 3-5 specific subtopics that are interview-relevant.
 
-Provide 5-7 main categories with 2-4 subtopics each. Focus on technical skills that are actually tested in interviews."""
+Be specific: Instead of "Algorithms", use "Sorting algorithms (quicksort, mergesort)" or "Graph traversal (BFS, DFS)". Instead of "Python", use "Python data structures (lists, dicts, sets)" or "List comprehensions and generators"."""
 
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": "You are a helpful interview preparation assistant. Provide concise, practical lists of interview-relevant topics."},
+                {"role": "system", "content": "You are an expert technical recruiter and interview coach with deep knowledge of what's actually tested in technical interviews. You provide comprehensive, well-organized topic lists that reflect real interview requirements. You prioritize practical skills and commonly-tested concepts."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=300,
+            max_tokens=400,
             temperature=0.7
         )
         
