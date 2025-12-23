@@ -438,22 +438,42 @@ def check_api_key():
 
 @app.route('/api/interviews', methods=['GET'])
 def get_interviews():
-    conn = get_db()
-    cursor = db_execute(conn, '''
-        SELECT i.*, 
-               COUNT(DISTINCT t.id) as topic_count,
-               COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END) as completed_topics
-        FROM interviews i
-        LEFT JOIN topics t ON i.id = t.interview_id
-        WHERE i.status = 'active'
-        GROUP BY i.id
-        ORDER BY CASE WHEN i.interview_date IS NULL THEN 1 ELSE 0 END, i.interview_date ASC, i.created_at DESC
-    ''')
-    interviews = db_fetchall(cursor)
-    if USE_POSTGRESQL:
-        cursor.close()
-    conn.close()
-    return jsonify([dict(row) for row in interviews])
+    try:
+        conn = get_db()
+        # PostgreSQL requires all non-aggregated columns in GROUP BY
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, '''
+                SELECT i.id, i.company, i.position, i.interview_date, i.created_at, i.status,
+                       COUNT(DISTINCT t.id) as topic_count,
+                       COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END) as completed_topics
+                FROM interviews i
+                LEFT JOIN topics t ON i.id = t.interview_id
+                WHERE i.status = 'active'
+                GROUP BY i.id, i.company, i.position, i.interview_date, i.created_at, i.status
+                ORDER BY CASE WHEN i.interview_date IS NULL THEN 1 ELSE 0 END, i.interview_date ASC, i.created_at DESC
+            ''')
+        else:
+            cursor = db_execute(conn, '''
+                SELECT i.*, 
+                       COUNT(DISTINCT t.id) as topic_count,
+                       COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END) as completed_topics
+                FROM interviews i
+                LEFT JOIN topics t ON i.id = t.interview_id
+                WHERE i.status = 'active'
+                GROUP BY i.id
+                ORDER BY CASE WHEN i.interview_date IS NULL THEN 1 ELSE 0 END, i.interview_date ASC, i.created_at DESC
+            ''')
+        interviews = db_fetchall(cursor)
+        if USE_POSTGRESQL:
+            cursor.close()
+        conn.close()
+        return jsonify([dict(row) for row in interviews])
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        traceback.print_exc()
+        print(f"Error in get_interviews: {error_msg}")
+        return jsonify({'error': f'Failed to load interviews: {error_msg}'}), 500
 
 @app.route('/api/interviews', methods=['POST'])
 def create_interview():
