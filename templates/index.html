@@ -1498,13 +1498,15 @@
                     // Get category order from topics.json to preserve admin page order
                     let categoryOrder = [];
                     try {
-                        const orderResponse = await fetch('/api/admin/topics');
-                        const orderData = await orderResponse.json();
-                        if (orderData.categories) {
-                            categoryOrder = orderData.categories.map(cat => cat.name);
+                        const orderResponse = await fetch('/api/topics');
+                        if (orderResponse.ok) {
+                            const orderData = await orderResponse.json();
+                            if (orderData.categories) {
+                                categoryOrder = orderData.categories.map(cat => cat.name);
+                            }
                         }
                     } catch (err) {
-                        console.log('Could not load category order:', err);
+                        // Silently fail - category order is optional
                     }
                     
                     // Sort mainCategories by the order in topics.json
