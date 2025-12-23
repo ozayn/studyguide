@@ -1495,7 +1495,7 @@
                         '#FFB6C1'  // Light Pink
                     ];
                     
-                    // Get category order from topics.json to preserve admin page order
+                    // Get category order from topics.json to preserve topic configuration order
                     let categoryOrder = [];
                     try {
                         const orderResponse = await fetch('/api/topics');
@@ -1830,7 +1830,7 @@
                 return;
             }
             
-            if (!confirm('This will replace all existing topics with topics from the admin configuration. Continue?')) {
+            if (!confirm('This will replace all existing topics with the default topic list. Continue?')) {
                 return;
             }
             
