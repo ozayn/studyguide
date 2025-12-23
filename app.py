@@ -252,12 +252,15 @@ def auth_login():
         # Create flow with proper configuration
         flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
         
-        # Use custom domain for OAuth callback (adjust for your domain)
-        if 'railway.app' in request.host:
-            # Replace with your actual domain when deployed
-            flow.redirect_uri = request.url_root + 'auth/callback'
+        # Construct redirect URI - ensure HTTPS for Railway
+        if 'railway.app' in request.host or os.getenv('RAILWAY_ENVIRONMENT'):
+            # Railway uses HTTPS, but request might come as HTTP due to proxy
+            redirect_uri = f"https://{request.host}/auth/callback"
         else:
-            flow.redirect_uri = request.url_root + 'auth/callback'
+            redirect_uri = request.url_root.rstrip('/') + '/auth/callback'
+        
+        flow.redirect_uri = redirect_uri
+        print(f"DEBUG: OAuth redirect URI: {redirect_uri}")
         
         authorization_url, state = flow.authorization_url(
             access_type='offline',
@@ -268,6 +271,8 @@ def auth_login():
         return redirect(authorization_url)
     except Exception as e:
         print(f"OAuth login error: {e}")
+        import traceback
+        print(traceback.format_exc())
         return f"OAuth error: {e}", 500
 
 @app.route('/auth/callback')
@@ -280,17 +285,22 @@ def auth_callback():
         # Create flow
         flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
         
-        # Use custom domain for OAuth callback (adjust for your domain)
-        if 'railway.app' in request.host:
-            flow.redirect_uri = request.url_root + 'auth/callback'
+        # Construct redirect URI - ensure HTTPS for Railway
+        if 'railway.app' in request.host or os.getenv('RAILWAY_ENVIRONMENT'):
+            # Railway uses HTTPS, but request might come as HTTP due to proxy
+            redirect_uri = f"https://{request.host}/auth/callback"
         else:
-            flow.redirect_uri = request.url_root + 'auth/callback'
+            redirect_uri = request.url_root.rstrip('/') + '/auth/callback'
+        
+        flow.redirect_uri = redirect_uri
+        print(f"DEBUG: OAuth callback redirect URI: {redirect_uri}")
         
         # Handle Railway proxy HTTPS issue
         authorization_response = request.url
-        if 'railway.app' in request.host:
+        if 'railway.app' in request.host or os.getenv('RAILWAY_ENVIRONMENT'):
             authorization_response = authorization_response.replace('http://', 'https://')
         
+        print(f"DEBUG: Authorization response URL: {authorization_response}")
         flow.fetch_token(authorization_response=authorization_response)
         
         credentials = flow.credentials
