@@ -1355,29 +1355,37 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             loadInterviews();
-        });
+            
+            // Set up form handlers after DOM is loaded
+            const interviewForm = document.getElementById('interview-form');
+            if (interviewForm) {
+                interviewForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const formData = {
+                        company: document.getElementById('company').value,
+                        position: document.getElementById('position').value,
+                        interview_date: document.getElementById('interview_date').value
+                    };
 
-        document.getElementById('interview-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = {
-                company: document.getElementById('company').value,
-                position: document.getElementById('position').value,
-                interview_date: document.getElementById('interview_date').value
-            };
+                    try {
+                        const response = await fetch('/api/interviews', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(formData)
+                        });
 
-            try {
-                const response = await fetch('/api/interviews', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData)
+                        if (response.ok) {
+                            document.getElementById('interview-form').reset();
+                            loadInterviews();
+                        } else {
+                            const errorData = await response.json().catch(() => ({ error: 'Failed to create study material' }));
+                            alert(errorData.error || 'Failed to create study material');
+                        }
+                    } catch (error) {
+                        console.error('Error creating study material:', error);
+                        alert('Failed to create study material. Please try again.');
+                    }
                 });
-
-                if (response.ok) {
-                    document.getElementById('interview-form').reset();
-                    loadInterviews();
-                }
-            } catch (error) {
-                console.error('Error creating study material:', error);
             }
         });
 
