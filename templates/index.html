@@ -2048,7 +2048,7 @@
             }
         }
 
-        function renderChecklistView(topics, container) {
+        async function renderChecklistView(topics, container) {
             if (!topics || topics.length === 0) {
                 container.innerHTML = '<div class="empty-state"><div class="empty-state-text">No topics yet</div></div>';
                 return;
