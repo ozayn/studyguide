@@ -705,7 +705,7 @@ def delete_topic(topic_id):
 
 @app.route('/api/interviews/<int:interview_id>/refresh-topics', methods=['POST'])
 def refresh_topics(interview_id):
-    """Refresh topics for an interview from topics.json"""
+    """Refresh topics for an interview from topics.json - only updates categorized topics, preserves uncategorized"""
     conn = get_db()
     cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (interview_id,))
     interview = db_fetchone(cursor)
@@ -715,8 +715,12 @@ def refresh_topics(interview_id):
         conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
-    # Delete existing topics
-    cursor = db_execute(conn, 'DELETE FROM topics WHERE interview_id = ?', (interview_id,))
+    # Only delete topics that have a category_name (from topics.json)
+    # Preserve uncategorized topics (category_name is NULL or empty)
+    if USE_POSTGRESQL:
+        cursor = db_execute(conn, 'DELETE FROM topics WHERE interview_id = %s AND category_name IS NOT NULL AND category_name != %s', (interview_id, ''))
+    else:
+        cursor = db_execute(conn, 'DELETE FROM topics WHERE interview_id = ? AND category_name IS NOT NULL AND category_name != ?', (interview_id, ''))
     if USE_POSTGRESQL:
         cursor.close()
     
