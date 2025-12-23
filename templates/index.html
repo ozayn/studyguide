@@ -1497,24 +1497,35 @@
                     
                     // Get category order from topics.json to preserve topic configuration order
                     let categoryOrder = [];
+                    let allCategoriesFromJson = [];
                     try {
                         const orderResponse = await fetch('/api/topics');
                         if (orderResponse.ok) {
                             const orderData = await orderResponse.json();
                             if (orderData.categories) {
                                 categoryOrder = orderData.categories.map(cat => cat.name);
+                                allCategoriesFromJson = orderData.categories.map(cat => cat.name);
                             }
                         }
                     } catch (err) {
                         // Silently fail - category order is optional
                     }
                     
-                    // Sort mainCategories by the order in topics.json
+                    // Get categories that have topics
                     const mainCategoriesUnsorted = Object.keys(topicsByMainCategory);
+                    
+                    // Show all categories from topics.json, even if they don't have topics yet
+                    // This ensures users see all available categories
                     const mainCategories = categoryOrder.length > 0 
-                        ? categoryOrder.filter(cat => mainCategoriesUnsorted.includes(cat))
-                            .concat(mainCategoriesUnsorted.filter(cat => !categoryOrder.includes(cat)))
+                        ? categoryOrder  // Show all categories in order from topics.json
                         : mainCategoriesUnsorted;
+                    
+                    // Ensure categories with topics are included even if not in categoryOrder
+                    mainCategories.forEach(cat => {
+                        if (!topicsByMainCategory[cat]) {
+                            topicsByMainCategory[cat] = {};  // Initialize empty category
+                        }
+                    });
                     
                     const hasUncategorized = uncategorized.length > 0;
                     
