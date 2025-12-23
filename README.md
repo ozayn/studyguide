@@ -99,7 +99,12 @@ This application is configured for deployment on Railway. The following files ar
    - Connect your GitHub repository to Railway
    - Railway will automatically detect the Flask app
 
-2. **Set Environment Variables** in Railway dashboard:
+2. **Add PostgreSQL Database**:
+   - In Railway dashboard, click **"+ New"** → **"Database"** → **"Add PostgreSQL"**
+   - Railway automatically creates the database and sets `DATABASE_URL` environment variable
+   - The app will automatically use PostgreSQL when `DATABASE_URL` is present
+
+3. **Set Environment Variables** in Railway dashboard:
    ```
    GROQ_API_KEY=your-groq-api-key
    GOOGLE_CLIENT_ID=your-google-client-id
@@ -108,18 +113,35 @@ This application is configured for deployment on Railway. The following files ar
    SECRET_KEY=your-secret-key-for-sessions
    RAILWAY_ENVIRONMENT=1
    ```
+   **Note:** `DATABASE_URL` is automatically set by Railway when you add PostgreSQL - no need to set it manually!
 
-3. **Configure OAuth Redirect URI**:
+4. **Configure OAuth Redirect URI**:
    - In Google Cloud Console, add your Railway domain as an authorized redirect URI:
      `https://your-app-name.railway.app/auth/callback`
 
-4. **Deploy**:
+5. **Deploy**:
    - Railway will automatically deploy on git push
    - The app will be available at `https://your-app-name.railway.app`
 
 ### Local vs Production
 
-- **Local Development**: Runs on port 5006 with debug mode enabled
-- **Railway Production**: Uses gunicorn with 2 workers, listens on Railway's PORT environment variable
-- **Authentication**: Bypassed on localhost, required on Railway
+- **Local Development**: 
+  - Runs on port 5006 with debug mode enabled
+  - Uses SQLite database (`interview_prep.db`)
+  - Authentication bypassed on localhost
+  
+- **Railway Production**: 
+  - Uses gunicorn with 2 workers, listens on Railway's PORT environment variable
+  - Uses PostgreSQL database (automatically configured via `DATABASE_URL`)
+  - Authentication required (Google OAuth)
+  - Database schema is automatically initialized on first run
+
+### Database
+
+The app supports both SQLite (local) and PostgreSQL (Railway):
+- **SQLite**: Used automatically when `DATABASE_URL` is not set (local development)
+- **PostgreSQL**: Used automatically when `DATABASE_URL` is set (Railway production)
+- No code changes needed - the app detects and uses the appropriate database
+
+See `RAILWAY_DATABASE_SETUP.md` for detailed database setup instructions.
 

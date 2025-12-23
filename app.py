@@ -5,6 +5,14 @@ import sqlite3
 import os
 import json
 
+# PostgreSQL support
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    POSTGRESQL_AVAILABLE = True
+except ImportError:
+    POSTGRESQL_AVAILABLE = False
+
 # Google OAuth imports
 try:
     from google.auth.transport.requests import Request
@@ -43,7 +51,15 @@ app.config['SESSION_COOKIE_SECURE'] = os.getenv('RAILWAY_ENVIRONMENT') is not No
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
-DATABASE = 'interview_prep.db'
+# Database configuration
+# Use Railway's DATABASE_URL if available (PostgreSQL), otherwise use local SQLite
+DATABASE_URL = os.getenv('DATABASE_URL')
+USE_POSTGRESQL = DATABASE_URL and ('postgresql' in DATABASE_URL or 'postgres' in DATABASE_URL)
+
+if USE_POSTGRESQL:
+    DATABASE = DATABASE_URL  # Full PostgreSQL connection string
+else:
+    DATABASE = 'interview_prep.db'  # Local SQLite file
 
 # Google OAuth Configuration
 if GOOGLE_OAUTH_AVAILABLE:
@@ -70,15 +86,36 @@ else:
     ADMIN_EMAILS = []
 
 def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get database connection - supports both SQLite and PostgreSQL"""
+    if USE_POSTGRESQL:
+        if not POSTGRESQL_AVAILABLE:
+            raise Exception("PostgreSQL URL provided but psycopg2 not installed. Run: pip install psycopg2-binary")
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    else:
+        conn = sqlite3.connect(DATABASE)
+        conn.row_factory = sqlite3.Row
+        return conn
+
 
 def init_db():
+    """Initialize database tables - supports both SQLite and PostgreSQL"""
     conn = get_db()
-    conn.execute('''
+    
+    # Determine ID column syntax based on database type
+    if USE_POSTGRESQL:
+        id_col = "id SERIAL PRIMARY KEY"
+        foreign_key_syntax = "FOREIGN KEY (interview_id) REFERENCES interviews (id)"
+        cursor = conn.cursor()
+    else:
+        id_col = "id INTEGER PRIMARY KEY AUTOINCREMENT"
+        foreign_key_syntax = "FOREIGN KEY (interview_id) REFERENCES interviews (id)"
+        cursor = conn.cursor()
+    
+    # Create interviews table
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS interviews (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {id_col},
             company TEXT,
             position TEXT,
             interview_date TEXT,
@@ -86,9 +123,11 @@ def init_db():
             status TEXT DEFAULT 'active'
         )
     ''')
-    conn.execute('''
+    
+    # Create topics table
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS topics (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {id_col},
             interview_id INTEGER,
             topic_name TEXT,
             category_name TEXT,
@@ -96,22 +135,49 @@ def init_db():
             status TEXT DEFAULT 'pending',
             notes TEXT,
             ai_guidance TEXT,
-            FOREIGN KEY (interview_id) REFERENCES interviews (id)
+            {foreign_key_syntax}
         )
     ''')
-    # Add ai_guidance column if it doesn't exist (for existing databases)
-    try:
-        conn.execute('ALTER TABLE topics ADD COLUMN ai_guidance TEXT')
-    except sqlite3.OperationalError:
-        pass  # Column already exists
-    # Add category_name column if it doesn't exist (for existing databases)
-    try:
-        conn.execute('ALTER TABLE topics ADD COLUMN category_name TEXT')
-    except sqlite3.OperationalError:
-        pass  # Column already exists
-    conn.execute('''
+    
+    # Add columns if they don't exist (for existing databases)
+    if USE_POSTGRESQL:
+        # PostgreSQL: Check if column exists before adding
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name='topics' AND column_name='ai_guidance'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE topics ADD COLUMN ai_guidance TEXT')
+        except Exception:
+            pass  # Column already exists or error
+        
+        try:
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name='topics' AND column_name='category_name'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE topics ADD COLUMN category_name TEXT')
+        except Exception:
+            pass  # Column already exists or error
+    else:
+        # SQLite: Try to add, ignore if exists
+        try:
+            cursor.execute('ALTER TABLE topics ADD COLUMN ai_guidance TEXT')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute('ALTER TABLE topics ADD COLUMN category_name TEXT')
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+    
+    # Create study_sessions table
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS study_sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            {id_col},
             interview_id INTEGER,
             topic_id INTEGER,
             date TEXT,
@@ -121,7 +187,9 @@ def init_db():
             FOREIGN KEY (topic_id) REFERENCES topics (id)
         )
     ''')
+    
     conn.commit()
+    cursor.close()
     conn.close()
 
 @app.route('/')
@@ -325,7 +393,7 @@ def check_api_key():
 @app.route('/api/interviews', methods=['GET'])
 def get_interviews():
     conn = get_db()
-    interviews = conn.execute('''
+    cursor = db_execute(conn, '''
         SELECT i.*, 
                COUNT(DISTINCT t.id) as topic_count,
                COUNT(DISTINCT CASE WHEN t.status = 'completed' THEN t.id END) as completed_topics
@@ -334,7 +402,10 @@ def get_interviews():
         WHERE i.status = 'active'
         GROUP BY i.id
         ORDER BY CASE WHEN i.interview_date IS NULL THEN 1 ELSE 0 END, i.interview_date ASC, i.created_at DESC
-    ''').fetchall()
+    ''')
+    interviews = db_fetchall(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     conn.close()
     return jsonify([dict(row) for row in interviews])
 
@@ -350,12 +421,23 @@ def create_interview():
     # Allow empty interview date
     
     conn = get_db()
-    cursor = conn.execute('''
-        INSERT INTO interviews (company, position, interview_date, created_at)
-        VALUES (?, ?, ?, ?)
-    ''', (company, data.get('position', ''), 
-          interview_date if interview_date else None, datetime.now().isoformat()))
-    interview_id = cursor.lastrowid
+    if USE_POSTGRESQL:
+        cursor = db_execute(conn, '''
+            INSERT INTO interviews (company, position, interview_date, created_at)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        ''', (company, data.get('position', ''), 
+              interview_date if interview_date else None, datetime.now().isoformat()))
+        result = db_fetchone(cursor)
+        interview_id = result['id'] if result else None
+        cursor.close()
+    else:
+        cursor = db_execute(conn, '''
+            INSERT INTO interviews (company, position, interview_date, created_at)
+            VALUES (?, ?, ?, ?)
+        ''', (company, data.get('position', ''), 
+              interview_date if interview_date else None, datetime.now().isoformat()))
+        interview_id = db_lastrowid(cursor, conn)
     conn.commit()
     conn.close()
     return jsonify({'id': interview_id, 'message': 'Study material created successfully'}), 201
@@ -363,12 +445,19 @@ def create_interview():
 @app.route('/api/interviews/<int:interview_id>', methods=['GET'])
 def get_interview(interview_id):
     conn = get_db()
-    interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (interview_id,))
+    interview = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not interview:
+        conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
-    topics = conn.execute('SELECT * FROM topics WHERE interview_id = ? ORDER BY COALESCE(category_name, ""), priority DESC, topic_name ASC', 
-                         (interview_id,)).fetchall()
+    cursor = db_execute(conn, 'SELECT * FROM topics WHERE interview_id = ? ORDER BY COALESCE(category_name, \'\'), priority DESC, topic_name ASC', 
+                         (interview_id,))
+    topics = db_fetchall(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     conn.close()
     
     interview_dict = dict(interview)
@@ -387,16 +476,26 @@ def get_interview(interview_id):
 def delete_interview(interview_id):
     conn = get_db()
     # Check if interview exists
-    interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (interview_id,))
+    interview = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not interview:
+        conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
     # Delete all related topics first (due to foreign key)
-    conn.execute('DELETE FROM topics WHERE interview_id = ?', (interview_id,))
+    cursor = db_execute(conn, 'DELETE FROM topics WHERE interview_id = ?', (interview_id,))
+    if USE_POSTGRESQL:
+        cursor.close()
     # Delete study sessions
-    conn.execute('DELETE FROM study_sessions WHERE interview_id = ?', (interview_id,))
+    cursor = db_execute(conn, 'DELETE FROM study_sessions WHERE interview_id = ?', (interview_id,))
+    if USE_POSTGRESQL:
+        cursor.close()
     # Delete the interview
-    conn.execute('DELETE FROM interviews WHERE id = ?', (interview_id,))
+    cursor = db_execute(conn, 'DELETE FROM interviews WHERE id = ?', (interview_id,))
+    if USE_POSTGRESQL:
+        cursor.close()
     conn.commit()
     conn.close()
     return jsonify({'message': 'Study material deleted successfully'})
@@ -407,8 +506,12 @@ def add_topic(interview_id):
     topic_name = data.get('topic_name', '').strip()
     
     conn = get_db()
-    interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (interview_id,))
+    interview = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not interview:
+        conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
     # If topic name is blank, generate common topics for the position
@@ -416,23 +519,45 @@ def add_topic(interview_id):
         topics = generate_common_topics(dict(interview).get('position', 'Data Scientist'))
         topic_ids = []
         for topic in topics:
-            cursor = conn.execute('''
-                INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (interview_id, topic['name'], topic.get('category', None), 
-                  topic.get('priority', 'medium'), topic.get('notes', '')))
-            topic_ids.append(cursor.lastrowid)
+            if USE_POSTGRESQL:
+                cursor = db_execute(conn, '''
+                    INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id
+                ''', (interview_id, topic['name'], topic.get('category', None), 
+                      topic.get('priority', 'medium'), topic.get('notes', '')))
+                result = db_fetchone(cursor)
+                topic_ids.append(result['id'] if result else None)
+                cursor.close()
+            else:
+                cursor = db_execute(conn, '''
+                    INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (interview_id, topic['name'], topic.get('category', None), 
+                      topic.get('priority', 'medium'), topic.get('notes', '')))
+                topic_ids.append(db_lastrowid(cursor, conn))
         conn.commit()
         conn.close()
         return jsonify({'ids': topic_ids, 'topics': topics, 'message': f'{len(topics)} common topics added successfully'}), 201
     
     # Add single topic
-    cursor = conn.execute('''
-        INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (interview_id, topic_name, data.get('category_name'), data.get('priority', 'medium'), 
-          data.get('notes', '')))
-    topic_id = cursor.lastrowid
+    if USE_POSTGRESQL:
+        cursor = db_execute(conn, '''
+            INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (interview_id, topic_name, data.get('category_name'), data.get('priority', 'medium'), 
+              data.get('notes', '')))
+        result = db_fetchone(cursor)
+        topic_id = result['id'] if result else None
+        cursor.close()
+    else:
+        cursor = db_execute(conn, '''
+            INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (interview_id, topic_name, data.get('category_name'), data.get('priority', 'medium'), 
+              data.get('notes', '')))
+        topic_id = db_lastrowid(cursor, conn)
     conn.commit()
     conn.close()
     return jsonify({'id': topic_id, 'message': 'Topic added successfully'}), 201
@@ -443,8 +568,12 @@ def update_topic(topic_id):
     conn = get_db()
     
     # Get existing topic to preserve fields not being updated
-    existing = conn.execute('SELECT * FROM topics WHERE id = ?', (topic_id,)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM topics WHERE id = ?', (topic_id,))
+    existing = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not existing:
+        conn.close()
         return jsonify({'error': 'Topic not found'}), 404
     
     existing_dict = dict(existing)
@@ -456,11 +585,19 @@ def update_topic(topic_id):
     notes = data.get('notes', existing_dict.get('notes'))
     ai_guidance = data.get('ai_guidance', existing_dict.get('ai_guidance'))
     
-    conn.execute('''
-        UPDATE topics 
-        SET topic_name = ?, priority = ?, status = ?, notes = ?, ai_guidance = ?
-        WHERE id = ?
-    ''', (topic_name, priority, status, notes, ai_guidance, topic_id))
+    if USE_POSTGRESQL:
+        cursor = db_execute(conn, '''
+            UPDATE topics 
+            SET topic_name = %s, priority = %s, status = %s, notes = %s, ai_guidance = %s
+            WHERE id = %s
+        ''', (topic_name, priority, status, notes, ai_guidance, topic_id))
+        cursor.close()
+    else:
+        db_execute(conn, '''
+            UPDATE topics 
+            SET topic_name = ?, priority = ?, status = ?, notes = ?, ai_guidance = ?
+            WHERE id = ?
+        ''', (topic_name, priority, status, notes, ai_guidance, topic_id))
     conn.commit()
     conn.close()
     return jsonify({'message': 'Topic updated successfully'})
@@ -468,7 +605,9 @@ def update_topic(topic_id):
 @app.route('/api/topics/<int:topic_id>', methods=['DELETE'])
 def delete_topic(topic_id):
     conn = get_db()
-    conn.execute('DELETE FROM topics WHERE id = ?', (topic_id,))
+    cursor = db_execute(conn, 'DELETE FROM topics WHERE id = ?', (topic_id,))
+    if USE_POSTGRESQL:
+        cursor.close()
     conn.commit()
     conn.close()
     return jsonify({'message': 'Topic deleted successfully'})
@@ -477,23 +616,40 @@ def delete_topic(topic_id):
 def refresh_topics(interview_id):
     """Refresh topics for an interview from topics.json"""
     conn = get_db()
-    interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (interview_id,))
+    interview = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not interview:
+        conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
     # Delete existing topics
-    conn.execute('DELETE FROM topics WHERE interview_id = ?', (interview_id,))
+    cursor = db_execute(conn, 'DELETE FROM topics WHERE interview_id = ?', (interview_id,))
+    if USE_POSTGRESQL:
+        cursor.close()
     
     # Generate new topics from topics.json
     topics = generate_common_topics(dict(interview).get('position', 'Data Scientist'))
     topic_ids = []
     for topic in topics:
-        cursor = conn.execute('''
-            INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (interview_id, topic['name'], topic.get('category', None), 
-              topic.get('priority', 'medium'), topic.get('notes', '')))
-        topic_ids.append(cursor.lastrowid)
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, '''
+                INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+            ''', (interview_id, topic['name'], topic.get('category', None), 
+                  topic.get('priority', 'medium'), topic.get('notes', '')))
+            result = db_fetchone(cursor)
+            topic_ids.append(result['id'] if result else None)
+            cursor.close()
+        else:
+            cursor = db_execute(conn, '''
+                INSERT INTO topics (interview_id, topic_name, category_name, priority, notes)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (interview_id, topic['name'], topic.get('category', None), 
+                  topic.get('priority', 'medium'), topic.get('notes', '')))
+            topic_ids.append(db_lastrowid(cursor, conn))
     
     conn.commit()
     conn.close()
@@ -503,12 +659,20 @@ def refresh_topics(interview_id):
 def generate_ai_guidance(topic_id):
     """Generate AI-powered study guidance for a topic based on the position"""
     conn = get_db()
-    topic = conn.execute('SELECT * FROM topics WHERE id = ?', (topic_id,)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM topics WHERE id = ?', (topic_id,))
+    topic = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not topic:
+        conn.close()
         return jsonify({'error': 'Topic not found'}), 404
     
-    interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (dict(topic)['interview_id'],)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (dict(topic)['interview_id'],))
+    interview = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not interview:
+        conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
     conn.close()
@@ -589,7 +753,9 @@ Format as clear bullet points. Be very specific - break down broad topics into i
 def _save_ai_guidance(topic_id, ai_guidance):
     """Helper function to save AI guidance to database"""
     conn = get_db()
-    conn.execute('UPDATE topics SET ai_guidance = ? WHERE id = ?', (ai_guidance, topic_id))
+    cursor = db_execute(conn, 'UPDATE topics SET ai_guidance = ? WHERE id = ?', (ai_guidance, topic_id))
+    if USE_POSTGRESQL:
+        cursor.close()
     conn.commit()
     conn.close()
 
@@ -828,12 +994,19 @@ Provide 5-7 main categories with 2-4 subtopics each. Focus on technical skills t
 @app.route('/api/interviews/<int:interview_id>/study-plan', methods=['GET'])
 def get_study_plan(interview_id):
     conn = get_db()
-    interview = conn.execute('SELECT * FROM interviews WHERE id = ?', (interview_id,)).fetchone()
+    cursor = db_execute(conn, 'SELECT * FROM interviews WHERE id = ?', (interview_id,))
+    interview = db_fetchone(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     if not interview:
+        conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
-    topics = conn.execute('SELECT * FROM topics WHERE interview_id = ? ORDER BY COALESCE(category_name, ""), priority DESC, topic_name ASC', 
-                         (interview_id,)).fetchall()
+    cursor = db_execute(conn, 'SELECT * FROM topics WHERE interview_id = ? ORDER BY COALESCE(category_name, \'\'), priority DESC, topic_name ASC', 
+                         (interview_id,))
+    topics = db_fetchall(cursor)
+    if USE_POSTGRESQL:
+        cursor.close()
     conn.close()
     
     interview_dict = dict(interview)
