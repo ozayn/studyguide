@@ -151,6 +151,14 @@
 
     function normalizeMathDelimiters(markdown) {
       if (!markdown) return '';
+      // Some model outputs include double-escaped KaTeX delimiters like "\\(" and "\\)".
+      // KaTeX auto-render expects "\(" and "\)" (single backslash), so collapse those.
+      markdown = String(markdown)
+        .replace(/\\\\\(/g, '\\(')
+        .replace(/\\\\\)/g, '\\)')
+        .replace(/\\\\\[/g, '\\[')
+        .replace(/\\\\\]/g, '\\]');
+
       // Convert common model output like:
       // "Mean: ( \\bar{x} = \\frac{1}{n} \\sum ... )"
       // into KaTeX-friendly delimiters:
@@ -163,7 +171,8 @@
           const s = String(inner || '').trim();
           if (!s) return m;
           if (!(/\\[a-zA-Z]+/.test(s) || /[_^]/.test(s))) return m;
-          return `: \\\\(${s}\\\\)`;
+          // IMPORTANT: we want literal "\(" and "\)" in the markdown so KaTeX auto-render can detect delimiters.
+          return `: \\(${s}\\)`;
         });
       });
       return out.join('\n');

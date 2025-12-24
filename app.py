@@ -89,8 +89,33 @@ app.config['SESSION_COOKIE_SECURE'] = os.getenv('RAILWAY_ENVIRONMENT') is not No
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
-# Drive import is a local-only feature by default (do not expose UI/flows on deployed environments).
-DRIVE_FEATURE_ENABLED = os.getenv('RAILWAY_ENVIRONMENT') is None
+def _env_truthy(name, default=None):
+    v = os.getenv(name)
+    if v is None:
+        return default
+    v = str(v).strip().lower()
+    if v in ('1', 'true', 'yes', 'y', 'on'):
+        return True
+    if v in ('0', 'false', 'no', 'n', 'off'):
+        return False
+    return default
+
+def drive_feature_enabled():
+    """
+    Drive integration is SECURITY-SENSITIVE. Default behavior:
+    - Enabled on localhost only
+    - Disabled on deployed environments unless explicitly enabled via DRIVE_FEATURE_ENABLED=1
+    """
+    override = _env_truthy('DRIVE_FEATURE_ENABLED', default=None)
+    if override is not None:
+        return bool(override)
+    # Default: only allow on localhost (prevents accidental exposure on deploy even if RAILWAY_ENVIRONMENT isn't set).
+    try:
+        host = (request.host or '').split(':')[0].lower()
+        return host in ('localhost', '127.0.0.1')
+    except Exception:
+        # Outside request context: safest default is disabled.
+        return False
 
 # Database configuration
 # Use Railway's DATABASE_URL if available (PostgreSQL), otherwise use local SQLite
@@ -112,7 +137,13 @@ else:
 if GOOGLE_OAUTH_AVAILABLE:
     GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
-    ADMIN_EMAILS = os.getenv('ADMIN_EMAILS', '').split(',')
+    # Admin allowlist (production hard requirement).
+    # Supports ADMIN_EMAILS="a@b.com,c@d.com" and/or ADMIN_EMAIL="a@b.com".
+    _admin_emails_env = []
+    if os.getenv('ADMIN_EMAIL'):
+        _admin_emails_env.append(os.getenv('ADMIN_EMAIL'))
+    _admin_emails_env.extend((os.getenv('ADMIN_EMAILS') or '').split(','))
+    ADMIN_EMAILS = [e.strip() for e in _admin_emails_env if str(e or '').strip()]
 
     # If credentials are not configured, treat OAuth as disabled (prevents broken auth flows on deploy).
     OAUTH_CONFIGURED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
@@ -139,6 +170,17 @@ else:
     SCOPES = []
     DRIVE_READONLY_SCOPE = None
     CLIENT_CONFIG = None
+
+def _is_local_request():
+    """
+    Local dev detection for admin convenience.
+    IMPORTANT: we never want to accidentally treat a deployed host as local.
+    """
+    try:
+        host = (request.host or '').split(':')[0].lower()
+        return host in ('localhost', '127.0.0.1')
+    except Exception:
+        return False
 
 def get_db():
     """Get database connection - supports both SQLite and PostgreSQL"""
@@ -334,6 +376,7 @@ def init_db():
             path TEXT,
             parent_id TEXT,
             extracted_topics_json TEXT,
+            text_excerpt TEXT,
             extracted_at TEXT,
             indexed_at TEXT
         )
@@ -345,6 +388,10 @@ def init_db():
             cursor.execute('ALTER TABLE drive_files ADD COLUMN folder_id TEXT')
         except sqlite3.OperationalError:
             pass
+        try:
+            cursor.execute('ALTER TABLE drive_files ADD COLUMN text_excerpt TEXT')
+        except sqlite3.OperationalError:
+            pass
     else:
         try:
             cursor.execute("""
@@ -354,6 +401,16 @@ def init_db():
             """)
             if not cursor.fetchone():
                 cursor.execute('ALTER TABLE drive_files ADD COLUMN folder_id TEXT')
+        except Exception:
+            pass
+        try:
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='drive_files' AND column_name='text_excerpt'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE drive_files ADD COLUMN text_excerpt TEXT')
         except Exception:
             pass
 
@@ -394,6 +451,39 @@ def init_db():
             updated_at TEXT
         )
     ''')
+
+    # Drive flashcard decks (generated from file excerpts)
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS drive_flashcard_decks (
+            {id_col},
+            folder_id TEXT,
+            kind TEXT,
+            deck_json TEXT,
+            created_at TEXT
+        )
+    ''')
+
+    # Add folder_id column if missing (existing DBs)
+    if not USE_POSTGRESQL:
+        try:
+            cursor.execute('ALTER TABLE drive_flashcard_decks ADD COLUMN folder_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE drive_flashcard_decks ADD COLUMN kind TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE drive_flashcard_decks ADD COLUMN deck_json TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE drive_flashcard_decks ADD COLUMN created_at TEXT')
+        except sqlite3.OperationalError:
+            pass
+    else:
+        # PostgreSQL migrations are best-effort; if table exists but columns missing, ignore.
+        pass
 
     # Global AI guidance cache (reusable across interviews)
     # Keys are normalized to maximize cache hits and avoid duplicate regeneration.
@@ -803,25 +893,37 @@ def index():
 # OAuth Helper Functions
 def is_admin_email(email):
     """Check if email is in admin whitelist"""
-    if not GOOGLE_OAUTH_AVAILABLE or not ADMIN_EMAILS:
-        return True  # Allow access if OAuth not configured
-    return email.strip().lower() in [admin.strip().lower() for admin in ADMIN_EMAILS if admin.strip()]
+    if not email:
+        return False
+    email = email.strip().lower()
+    # In local dev, allow easy access even without configuring OAuth/admin allowlist.
+    if _is_local_request():
+        if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
+            return True
+        # If OAuth is configured locally, still use the allowlist if provided.
+        if not ADMIN_EMAILS:
+            return True
+    # In non-local environments, require explicit allowlist.
+    if not ADMIN_EMAILS:
+        return False
+    return email in [admin.strip().lower() for admin in ADMIN_EMAILS if admin.strip()]
 
 def login_required(f):
     """Decorator to require Google OAuth login for admin routes"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         # For local development only, bypass OAuth if running on localhost
-        is_local = (request.host.startswith('localhost') or 
-                   request.host.startswith('127.0.0.1') or
-                   request.host.startswith('10.'))
-        
-        if is_local:
+        if _is_local_request():
             print("DEBUG: Local development detected, bypassing OAuth")
             return f(*args, **kwargs)
-        
+
+        # Production safety: admin must not be publicly accessible.
         if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
-            return f(*args, **kwargs)  # Allow access if OAuth not configured
+            return ("Admin is disabled: Google OAuth is not configured. "
+                    "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (and ADMIN_EMAILS) to enable /admin."), 403
+        if not ADMIN_EMAILS:
+            return ("Admin is disabled: no admin allowlist configured. "
+                    "Set ADMIN_EMAILS (or ADMIN_EMAIL) to your email to enable /admin."), 403
         
         # Check if user is logged in
         if ('user_email' not in session or 
@@ -847,7 +949,7 @@ def drive_login_required(f):
     """Require OAuth with Drive read-only scope (no localhost bypass)."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not DRIVE_FEATURE_ENABLED:
+        if not drive_feature_enabled():
             return jsonify({'error': 'Not found'}), 404
         if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
             return jsonify({'error': 'Google OAuth not available. Install google-auth-oauthlib and google-api-python-client.'}), 500
@@ -865,16 +967,18 @@ def drive_login_required(f):
 def auth_login():
     """Initiate Google OAuth login"""
     if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
-        return redirect('/admin')  # Skip auth if not configured
+        # Local dev convenience only; never auto-open admin on deploy.
+        if _is_local_request():
+            return redirect('/admin')
+        return ("OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET "
+                "(and ADMIN_EMAILS) to enable admin login."), 403
     
     # For local development, redirect directly to admin
-    is_local = (request.host.startswith('localhost') or 
-               request.host.startswith('127.0.0.1') or
-               request.host.startswith('10.'))
+    is_local = _is_local_request()
     
     # For local development, only bypass for admin access.
     # Drive integration requires real OAuth even on localhost, but we keep Drive feature local-only by default.
-    if request.args.get('drive') == '1' and not DRIVE_FEATURE_ENABLED:
+    if request.args.get('drive') == '1' and not drive_feature_enabled():
         return redirect('/admin')
     if is_local and request.args.get('drive') != '1':
         return redirect('/admin')
@@ -920,13 +1024,14 @@ def auth_login():
 def auth_callback():
     """Handle Google OAuth callback"""
     if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
-        return redirect('/admin')
+        if _is_local_request():
+            return redirect('/admin')
+        return ("OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET "
+                "(and ADMIN_EMAILS) to enable admin login."), 403
     
     try:
         # Local dev: allow OAuth over http://localhost (otherwise oauthlib blocks with insecure_transport).
-        is_local = (request.host.startswith('localhost') or 
-                    request.host.startswith('127.0.0.1') or
-                    request.host.startswith('10.'))
+        is_local = _is_local_request()
         if is_local:
             os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
@@ -995,7 +1100,7 @@ def auth_logout():
 @app.route('/admin')
 @login_required
 def admin():
-    return render_template('admin.html', session=session, drive_enabled=DRIVE_FEATURE_ENABLED)
+    return render_template('admin.html', session=session, drive_enabled=drive_feature_enabled())
 
 @app.route('/drive/guide/view/latest')
 @drive_login_required
@@ -1342,7 +1447,7 @@ def drive_extract_topics():
     try:
         if USE_POSTGRESQL:
             cur = db_execute(conn, '''
-                SELECT file_id, folder_id, name, mime_type, modified_time, extracted_at
+                SELECT file_id, folder_id, name, mime_type, modified_time, extracted_at, extracted_topics_json, text_excerpt
                 FROM drive_files
                 WHERE folder_id = %s
                 ORDER BY indexed_at DESC NULLS LAST
@@ -1352,7 +1457,7 @@ def drive_extract_topics():
             cur.close()
         else:
             cur = db_execute(conn, '''
-                SELECT file_id, folder_id, name, mime_type, modified_time, extracted_at
+                SELECT file_id, folder_id, name, mime_type, modified_time, extracted_at, extracted_topics_json, text_excerpt
                 FROM drive_files
                 WHERE folder_id = ?
                 ORDER BY indexed_at DESC
@@ -1366,7 +1471,9 @@ def drive_extract_topics():
     for f in rows:
         if len(processed) >= limit:
             break
-        if not force and f.get('extracted_at'):
+        # If we've already extracted topics but never stored an excerpt, we still want to download once
+        # to store text_excerpt for downstream features (flashcards, etc.).
+        if not force and f.get('extracted_at') and f.get('text_excerpt'):
             continue
         file_id = f.get('file_id')
         name = f.get('name') or ''
@@ -1383,6 +1490,24 @@ def drive_extract_topics():
                 text = _extract_text_pdf(raw)
             else:
                 continue
+            # Persist a short excerpt so later study tools (flashcards, etc.) can be grounded in the exact material.
+            excerpt = (text or '').replace('\x00', '').strip()[:20000]
+
+            # If topics were already extracted and we're not forcing, just store the excerpt quickly.
+            if (not force) and f.get('extracted_at') and f.get('extracted_topics_json'):
+                conn = get_db()
+                try:
+                    if USE_POSTGRESQL:
+                        cur = db_execute(conn, 'UPDATE drive_files SET text_excerpt = %s WHERE file_id = %s', (excerpt, file_id))
+                        cur.close()
+                    else:
+                        db_execute(conn, 'UPDATE drive_files SET text_excerpt = ? WHERE file_id = ?', (excerpt, file_id))
+                    conn.commit()
+                finally:
+                    conn.close()
+                processed.append({'file_id': file_id, 'name': name, 'excerpt_saved': True, 'topics': 'skipped'})
+                continue
+
             heuristic = _extract_candidate_topics_heuristic(text, max_topics=30)
             ai_topics = _ai_extract_topics(text, max_topics=20, title_hint=name) if text else []
             topics = ai_topics or heuristic
@@ -1395,22 +1520,24 @@ def drive_extract_topics():
                     cur = db_execute(conn, '''
                         UPDATE drive_files
                         SET extracted_topics_json = %s,
+                            text_excerpt = %s,
                             extracted_at = %s
                         WHERE file_id = %s
-                    ''', (payload, now, file_id))
+                    ''', (payload, excerpt, now, file_id))
                     cur.close()
                 else:
                     db_execute(conn, '''
                         UPDATE drive_files
                         SET extracted_topics_json = ?,
+                            text_excerpt = ?,
                             extracted_at = ?
                         WHERE file_id = ?
-                    ''', (payload, now, file_id))
+                    ''', (payload, excerpt, now, file_id))
                 conn.commit()
             finally:
                 conn.close()
 
-            processed.append({'file_id': file_id, 'name': name, 'topics': topics})
+            processed.append({'file_id': file_id, 'name': name, 'topics': topics, 'excerpt_saved': True})
         except Exception as e:
             processed.append({'file_id': file_id, 'name': name, 'error': str(e)})
 
@@ -1762,6 +1889,139 @@ Topic inventory:
     model = genai.GenerativeModel('gemini-pro')
     return (model.generate_content(prompt).text or '').strip()
 
+def _parse_json_array_loose(text):
+    """
+    Best-effort parse of a JSON array from LLM output.
+    Accepts raw JSON or fenced output; returns a Python list or [].
+    """
+    if not text:
+        return []
+    s = str(text).strip()
+    # Strip common code fences
+    s = re.sub(r'^\s*```(?:json)?\s*', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'\s*```\s*$', '', s)
+    try:
+        obj = json.loads(s)
+        return obj if isinstance(obj, list) else []
+    except Exception:
+        pass
+    # Try to locate the first JSON array
+    try:
+        i = s.find('[')
+        j = s.rfind(']')
+        if i != -1 and j != -1 and j > i:
+            obj = json.loads(s[i:j+1])
+            return obj if isinstance(obj, list) else []
+    except Exception:
+        pass
+    return []
+
+def _ai_generate_flashcards_from_excerpt(excerpt, title_hint='', n_cards=8):
+    """
+    Generate flashcards strictly from provided excerpt.
+    Returns a list of {q, a, level, source}.
+    """
+    excerpt = (excerpt or '').strip()
+    if not excerpt:
+        return []
+    if n_cards < 3:
+        n_cards = 3
+    if n_cards > 20:
+        n_cards = 20
+
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    gemini_key = os.environ.get('GOOGLE_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    if not ((groq_key and Groq is not None) or (gemini_key and genai is not None)):
+        raise Exception('No AI API key configured (set GROQ_API_KEY or GOOGLE_API_KEY).')
+
+    prompt = f"""
+You are generating study flashcards from EXACT SOURCE MATERIAL.
+
+SOURCE FILE: {title_hint or "(unknown)"}
+
+Rules (must follow):
+- ONLY use facts/definitions/formulas that are present in the excerpt below. Do NOT add outside knowledge.
+- If the excerpt is insufficient for a card, SKIP it.
+- Make cards interview-friendly: crisp Q, precise A.
+- Use LaTeX for formulas with proper delimiters: \\( ... \\) inline and $$ ... $$ for display.
+- Output MUST be valid JSON: an array of objects with keys:
+  - "q": string
+  - "a": string
+  - "level": one of ["easy","medium","hard"]
+  - "source": string (use the SOURCE FILE)
+- No markdown, no commentary, no code fences.
+
+Return {n_cards} cards max.
+
+EXCERPT:
+{excerpt}
+""".strip()
+
+    out_text = ''
+    if groq_key and Groq is not None:
+        client = Groq(api_key=groq_key)
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=1600
+        )
+        out_text = (resp.choices[0].message.content or '').strip()
+    else:
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel('gemini-pro')
+        out_text = (model.generate_content(prompt).text or '').strip()
+
+    cards = _parse_json_array_loose(out_text)
+    cleaned = []
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        q = str(c.get('q') or '').strip()
+        a = str(c.get('a') or '').strip()
+        level = str(c.get('level') or '').strip().lower()
+        source = str(c.get('source') or title_hint or '').strip()
+        if not q or not a:
+            continue
+        if level not in ('easy', 'medium', 'hard'):
+            level = 'medium'
+        if not source:
+            source = title_hint or ''
+        cleaned.append({'q': q, 'a': a, 'level': level, 'source': source})
+    return cleaned
+
+def _normalize_math_delimiters_backend(markdown):
+    """
+    Normalize common LLM output like:
+      "Mean: ( \\bar{x} = ... )"
+    into KaTeX-friendly delimiters:
+      "Mean: \\( \\bar{x} = ... \\)"
+
+    This prevents regressions when the model ignores formatting instructions.
+    """
+    if not markdown:
+        return markdown
+    s = str(markdown)
+
+    # Collapse double-escaped KaTeX delimiters (common in LLM output):
+    # "\\(" -> "\(" and similarly for "\)", "\[", "\]".
+    s = s.replace('\\\\(', '\\(').replace('\\\\)', '\\)')
+    s = s.replace('\\\\[', '\\[').replace('\\\\]', '\\]')
+
+    # Replace "( <latex-like> )" -> "\\( <latex-like> \\)" conservatively.
+    # We only convert when the inside contains a LaTeX command or ^/_.
+    def repl(m):
+        inner = (m.group(1) or '').strip()
+        if not inner:
+            return m.group(0)
+        if ('\\left' in inner) or ('\\right' in inner):
+            return m.group(0)
+        if not (re.search(r'\\[A-Za-z]+', inner) or re.search(r'[_^]', inner)):
+            return m.group(0)
+        return f"\\( {inner} \\)"
+
+    return re.sub(r'\(\s*([^\)]*?)\s*\)', repl, s)
+
 @app.route('/api/drive/guide/latest', methods=['GET'])
 @drive_login_required
 def drive_guide_latest():
@@ -1917,6 +2177,9 @@ def drive_guide_generate():
         toc = "## Table of contents\n" + "\n".join(toc_lines) + "\n\n"
         content = header + intro + toc + "\n\n".join(sections).strip() + "\n"
 
+    # Safety-net: normalize common "( \\latex ... )" into "\\( ... \\)" so KaTeX renders reliably.
+    content = _normalize_math_delimiters_backend(content)
+
     # Store as latest guide row
     conn = get_db()
     try:
@@ -1936,6 +2199,285 @@ def drive_guide_generate():
         conn.close()
 
     return jsonify({'message': 'Guide generated', 'kind': kind, 'created_at': created_at, 'modules': len(module_payload)})
+
+@app.route('/api/drive/flashcards/generate', methods=['POST'])
+@drive_login_required
+def drive_flashcards_generate():
+    """
+    Generate a flashcard deck grounded in the exact source material excerpts.
+    Requires that /api/drive/extract-topics has been run (it stores text excerpts).
+    """
+    data = request.get_json(silent=True) or {}
+    folder_id = (data.get('folder_id') or get_setting('drive_last_folder_id', '') or '').strip()
+    if not folder_id:
+        return jsonify({'error': 'folder_id is required (index a folder first)'}), 400
+
+    svc = _drive_service_for_session()
+    if not svc:
+        return jsonify({'error': 'Drive not connected', 'auth_url': '/auth/login?drive=1'}), 401
+
+    kind = (data.get('kind') or 'ds_mid').strip().lower()
+    if kind not in ('ds_mid', 'course', 'concise'):
+        kind = 'ds_mid'
+
+    limit_files = int(data.get('limit_files') or 6)
+    limit_files = max(1, min(25, limit_files))
+
+    cards_per_file = int(data.get('cards_per_file') or 8)
+    cards_per_file = max(3, min(20, cards_per_file))
+
+    max_total = int(data.get('max_total') or 120)
+    max_total = max(10, min(300, max_total))
+
+    # Pull a larger candidate set; we'll auto-fill missing excerpts for the most recent files.
+    conn = get_db()
+    candidates = []
+    try:
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, '''
+                SELECT file_id, name, path, mime_type, text_excerpt
+                FROM drive_files
+                WHERE folder_id = %s
+                ORDER BY extracted_at DESC NULLS LAST, indexed_at DESC NULLS LAST
+                LIMIT %s
+            ''', (folder_id, max(limit_files * 4, limit_files),))
+            candidates = [dict(r) for r in db_fetchall(cur)]
+            cur.close()
+        else:
+            cur = db_execute(conn, '''
+                SELECT file_id, name, path, mime_type, text_excerpt
+                FROM drive_files
+                WHERE folder_id = ?
+                ORDER BY extracted_at DESC, indexed_at DESC
+                LIMIT ?
+            ''', (folder_id, max(limit_files * 4, limit_files),))
+            rows = db_fetchall(cur)
+            candidates = [{'file_id': r[0], 'name': r[1], 'path': r[2], 'mime_type': r[3], 'text_excerpt': r[4]} for r in rows]
+    finally:
+        conn.close()
+
+    if not candidates:
+        return jsonify({'error': 'No indexed files found for this folder. Run Index Folder first.'}), 400
+
+    # Auto-fill excerpts (fast) if missing, so user doesn't have to rerun extraction with force.
+    filled = 0
+    for f in candidates:
+        if filled >= limit_files:
+            break
+        if f.get('text_excerpt'):
+            filled += 1
+            continue
+        file_id = f.get('file_id')
+        name = (f.get('name') or '')
+        mime = (f.get('mime_type') or '')
+        if not file_id:
+            continue
+        try:
+            raw = _drive_download_bytes(svc, file_id)
+            is_pdf = mime == 'application/pdf' or name.lower().endswith('.pdf')
+            is_ipynb = name.lower().endswith('.ipynb') or mime in ('application/x-ipynb+json',)
+            if is_ipynb:
+                text = _extract_text_ipynb(raw)
+            elif is_pdf:
+                text = _extract_text_pdf(raw)
+            else:
+                continue
+            excerpt = (text or '').replace('\x00', '').strip()[:20000]
+            if not excerpt:
+                continue
+            conn = get_db()
+            try:
+                if USE_POSTGRESQL:
+                    cur = db_execute(conn, 'UPDATE drive_files SET text_excerpt = %s WHERE file_id = %s', (excerpt, file_id))
+                    cur.close()
+                else:
+                    db_execute(conn, 'UPDATE drive_files SET text_excerpt = ? WHERE file_id = ?', (excerpt, file_id))
+                conn.commit()
+            finally:
+                conn.close()
+            f['text_excerpt'] = excerpt
+            filled += 1
+        except Exception:
+            # Non-fatal; we'll keep going.
+            continue
+
+    files = [f for f in candidates if (f.get('text_excerpt') and str(f.get('text_excerpt')).strip())][:limit_files]
+    if not files:
+        return jsonify({'error': 'Could not extract any usable excerpts. Try Extract Topics, or check that folder contains PDFs/.ipynb.'}), 400
+
+    cards = []
+    seen = set()
+    per_file_results = []
+    for f in files:
+        if len(cards) >= max_total:
+            break
+        name = (f.get('name') or '').strip()
+        path = (f.get('path') or '').strip()
+        title_hint = name or path or (f.get('file_id') or '')
+        excerpt = f.get('text_excerpt') or ''
+        try:
+            new_cards = _ai_generate_flashcards_from_excerpt(excerpt, title_hint=title_hint, n_cards=cards_per_file)
+            added = 0
+            for c in new_cards:
+                q = str(c.get('q') or '').strip()
+                a = str(c.get('a') or '').strip()
+                key = (q.lower(), a.lower())
+                if not q or not a:
+                    continue
+                if key in seen:
+                    continue
+                seen.add(key)
+                cards.append(c)
+                added += 1
+                if len(cards) >= max_total:
+                    break
+            per_file_results.append({'file': title_hint, 'cards': added})
+        except Exception as e:
+            per_file_results.append({'file': title_hint, 'error': str(e)})
+
+    deck_obj = {
+        'kind': kind,
+        'folder_id': folder_id,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'cards': cards,
+        'files': per_file_results
+    }
+
+    # Persist deck
+    conn = get_db()
+    try:
+        now = deck_obj['created_at']
+        deck_json = json.dumps(deck_obj, ensure_ascii=False)
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, '''
+                INSERT INTO drive_flashcard_decks (folder_id, kind, deck_json, created_at)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            ''', (folder_id, kind, deck_json, now))
+            row = db_fetchone(cur)
+            cur.close()
+            deck_id = dict(row).get('id') if row else None
+        else:
+            cur = db_execute(conn, '''
+                INSERT INTO drive_flashcard_decks (folder_id, kind, deck_json, created_at)
+                VALUES (?, ?, ?, ?)
+            ''', (folder_id, kind, deck_json, now))
+            deck_id = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({'ok': True, 'id': deck_id, 'kind': kind, 'folder_id': folder_id, 'card_count': len(cards), 'files': per_file_results})
+
+def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
+    conn = get_db()
+    try:
+        if USE_POSTGRESQL:
+            if kind and folder_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, deck_json, created_at
+                    FROM drive_flashcard_decks
+                    WHERE kind = %s AND folder_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (kind, folder_id))
+            elif kind:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, deck_json, created_at
+                    FROM drive_flashcard_decks
+                    WHERE kind = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (kind,))
+            elif folder_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, deck_json, created_at
+                    FROM drive_flashcard_decks
+                    WHERE folder_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (folder_id,))
+            else:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, deck_json, created_at
+                    FROM drive_flashcard_decks
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''')
+            row = db_fetchone(cur)
+            cur.close()
+            conn.close()
+            if not row:
+                return None
+            d = dict(row)
+            return {'id': d.get('id'), 'folder_id': d.get('folder_id'), 'kind': d.get('kind'), 'deck_json': d.get('deck_json'), 'created_at': d.get('created_at')}
+        # SQLite
+        if kind and folder_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, deck_json, created_at
+                FROM drive_flashcard_decks
+                WHERE kind = ? AND folder_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (kind, folder_id))
+        elif kind:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, deck_json, created_at
+                FROM drive_flashcard_decks
+                WHERE kind = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (kind,))
+        elif folder_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, deck_json, created_at
+                FROM drive_flashcard_decks
+                WHERE folder_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (folder_id,))
+        else:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, deck_json, created_at
+                FROM drive_flashcard_decks
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''')
+        row = db_fetchone(cur)
+        conn.close()
+        if not row:
+            return None
+        return {'id': row[0], 'folder_id': row[1], 'kind': row[2], 'deck_json': row[3], 'created_at': row[4]}
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+@app.route('/api/drive/flashcards/latest', methods=['GET'])
+@drive_login_required
+def drive_flashcards_latest():
+    kind = (request.args.get('kind') or '').strip().lower() or None
+    folder_id = (request.args.get('folder_id') or '').strip() or None
+    deck = _fetch_latest_flashcard_deck(kind=kind, folder_id=folder_id)
+    if not deck:
+        return jsonify({'error': 'No flashcard deck generated yet'}), 404
+    return jsonify(deck)
+
+@app.route('/drive/flashcards/view/latest', methods=['GET'])
+@drive_login_required
+def drive_flashcards_view_latest():
+    kind = (request.args.get('kind') or '').strip().lower() or None
+    folder_id = (request.args.get('folder_id') or '').strip() or None
+    deck = _fetch_latest_flashcard_deck(kind=kind, folder_id=folder_id)
+    if not deck:
+        return "No flashcard deck generated yet.", 404
+    try:
+        obj = json.loads(deck.get('deck_json') or '{}')
+    except Exception:
+        obj = {'cards': []}
+    return render_template('drive_flashcards_view.html', deck=obj)
 
 @app.route('/favicon.ico')
 def favicon():

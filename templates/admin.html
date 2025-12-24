@@ -453,6 +453,8 @@
                     <button class="btn btn-secondary" type="button" onclick="driveGenerateGuide()">Generate Concise (Course) Guide</button>
                     <button class="btn btn-secondary" type="button" onclick="driveOpenGuide()">Open Concise (Course) Guide</button>
                     <button class="btn btn-secondary" type="button" onclick="driveGenerateDSMidGuide()">Generate DS (Mid) Guide</button>
+                        <button class="btn btn-secondary" type="button" onclick="driveGenerateFlashcards()">Generate Flashcards (from files)</button>
+                        <button class="btn btn-secondary" type="button" onclick="driveOpenFlashcards()">Open Flashcards</button>
                 </div>
             </details>
 
@@ -662,6 +664,45 @@
                 window.open(`/drive/guide/view/latest?${qs.toString()}`, '_blank');
             } catch (e) {
                 showMessage('Open DS guide error: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function driveGenerateFlashcards() {
+            setDriveOutput('Generating flashcards… (this can take 30–120s depending on files)');
+            try {
+                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const res = await fetch('/api/drive/flashcards/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: 'ds_mid', folder_id: folderId, limit_files: 6, cards_per_file: 8, max_total: 120 })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Flashcard generation failed');
+                setDriveOutput(data);
+                showMessage(`✅ Generated ${data.card_count} flashcards`, 'success');
+                return data;
+            } catch (e) {
+                setDriveOutput({ error: e.message || String(e) });
+                showMessage('Flashcard generation error: ' + (e.message || e), 'error');
+                return null;
+            }
+        }
+
+        async function driveOpenFlashcards() {
+            try {
+                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const qs = new URLSearchParams();
+                qs.set('kind', 'ds_mid');
+                if (folderId) qs.set('folder_id', folderId);
+                // If there's no deck yet, auto-generate then open (smoother flow).
+                const check = await fetch(`/api/drive/flashcards/latest?${qs.toString()}`);
+                if (!check.ok) {
+                    const generated = await driveGenerateFlashcards();
+                    if (!generated) return;
+                }
+                window.open(`/drive/flashcards/view/latest?${qs.toString()}`, '_blank');
+            } catch (e) {
+                showMessage('Open flashcards error: ' + (e.message || e), 'error');
             }
         }
 
