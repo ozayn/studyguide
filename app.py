@@ -991,7 +991,6 @@ def auth_login():
         scopes = SCOPES
         if request.args.get('drive') == '1':
             scopes = SCOPES + [DRIVE_READONLY_SCOPE]
-        session['oauth_scopes'] = scopes
 
         # Create flow with proper configuration
         flow = Flow.from_client_config(CLIENT_CONFIG, scopes)
@@ -1006,13 +1005,24 @@ def auth_login():
         flow.redirect_uri = redirect_uri
         print(f"DEBUG: OAuth redirect URI: {redirect_uri}")
         
+        # IMPORTANT:
+        # - Do NOT use include_granted_scopes=true here. If the user previously granted Drive scope,
+        #   Google may return it even when we request only basic scopes, and oauthlib raises
+        #   "Scope has changed ..." as a safety check.
+        # - Track scopes by state to avoid mismatch if multiple login attempts happen in parallel.
         authorization_url, state = flow.authorization_url(
             access_type='offline',
-            include_granted_scopes='true',
             prompt='consent'
         )
-        
+
         session['state'] = state
+        scoped = session.get('oauth_scopes_by_state') or {}
+        try:
+            scoped = dict(scoped)
+        except Exception:
+            scoped = {}
+        scoped[state] = scopes
+        session['oauth_scopes_by_state'] = scoped
         return redirect(authorization_url)
     except Exception as e:
         print(f"OAuth login error: {e}")
@@ -1035,7 +1045,22 @@ def auth_callback():
         if is_local:
             os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
-        scopes = session.get('oauth_scopes') or SCOPES
+        # Recover the exact scopes for this OAuth state; this avoids "scope has changed" when
+        # a user initiates multiple auth flows (or switches between admin-only and drive auth).
+        state = request.args.get('state') or session.get('state')
+        scopes = None
+        try:
+            scoped = session.get('oauth_scopes_by_state') or {}
+            scopes = scoped.get(state)
+        except Exception:
+            scopes = None
+        if not scopes:
+            # Fallback: use scope from querystring if present, else default base scopes.
+            scope_qs = (request.args.get('scope') or '').strip()
+            if scope_qs:
+                scopes = scope_qs.split()
+            else:
+                scopes = SCOPES
         # Create flow
         flow = Flow.from_client_config(CLIENT_CONFIG, scopes)
         
@@ -1072,6 +1097,16 @@ def auth_callback():
         session['user_name'] = name
         # Store tokens server-side; cookie sessions can overflow with OAuth JSON.
         _set_token_json(email, scopes, credentials.to_json())
+
+        # Cleanup state-scoped scopes (keep cookie small)
+        try:
+            scoped = session.get('oauth_scopes_by_state') or {}
+            if isinstance(scoped, dict) and state in scoped:
+                scoped = dict(scoped)
+                del scoped[state]
+                session['oauth_scopes_by_state'] = scoped
+        except Exception:
+            pass
         
         return redirect('/admin')
         
