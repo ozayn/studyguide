@@ -1667,8 +1667,18 @@
             let html = '';
             let listLevel = 0;
             let listOpen = false;
+            let liOpen = false;
+            let liBuffer = '';
+            let liLevel = 0;
 
             const closeListsToLevel = (targetLevel) => {
+                // Close any in-progress list item before closing lists
+                if (liOpen) {
+                    html += `<li>${liBuffer}</li>`;
+                    liOpen = false;
+                    liBuffer = '';
+                    liLevel = 0;
+                }
                 while (listLevel > targetLevel) {
                     html += `</ul>`;
                     listLevel--;
@@ -1757,6 +1767,13 @@
                 // Check if it's a list item (supports *, -, +, or number.)
                 const listMatch = line.match(/^(\s*)([\*\-\+])\s+(.+)$/) || line.match(/^(\s*)(\d+\.)\s+(.+)$/);
                 if (listMatch) {
+                    // If we had an open list item, flush it before starting a new one
+                    if (liOpen) {
+                        html += `<li>${liBuffer}</li>`;
+                        liOpen = false;
+                        liBuffer = '';
+                        liLevel = 0;
+                    }
                     const indent = (listMatch[1] || '').replace(/\t/g, '    ').length;
                     const level = Math.floor(indent / 2) + 1; // base level 1
                     // If indentation decreased, close lists back to the correct level first
@@ -1772,16 +1789,42 @@
                     itemText = itemText.replace(/^:\s*/, '').trim();
                     // If the item becomes empty after cleanup, ignore it
                     if (!itemText) continue;
-                    html += `<li>${itemText}</li>`;
+                    // Keep list item open so following indented/Answer lines can be folded into it.
+                    liOpen = true;
+                    liBuffer = itemText;
+                    liLevel = level;
                 } else {
-                    // Not a list item - close list if open
-                    closeListsToLevel(0);
-                    // Remove colon after closing strong tag
+                    // Not a list item: if we're currently inside a list item, treat certain lines as continuation.
+                    // This fixes common LLM formatting like:
+                    // - Question?
+                    //   Answer: ...
+                    // or
+                    // - Q: ...
+                    //   A: ...
+                    // Keep it conservative so we don't accidentally swallow normal paragraphs.
                     let paraText = line.trim().replace(/<\/strong>:\s*/g, '</strong> ');
-                    // Remove leading colon if present
                     paraText = paraText.replace(/^:\s*/, '').trim();
-                    // Ignore empty paragraphs and stray bullet glyphs
                     if (!paraText || /^[-*+•]$/.test(paraText) || /^\d+\.$/.test(paraText)) continue;
+
+                    const looksLikeContinuation =
+                        liOpen &&
+                        listLevel > 0 &&
+                        (
+                            // Indented in original text
+                            (/^\s{2,}\S/.test(rawLine) || /^\t+\S/.test(rawLine)) ||
+                            // Explicit answer markers
+                            (/^(?:Answer|A)\s*:\s+/i.test(paraText)) ||
+                            (/^(?:Explanation|Why)\s*:\s+/i.test(paraText))
+                        );
+
+                    if (looksLikeContinuation) {
+                        // Fold into the open list item with a line break (keeps indentation under the bullet).
+                        liBuffer += `<br>${paraText}`;
+                        continue;
+                    }
+
+                    // Otherwise flush any open list item and close lists.
+                    closeListsToLevel(0);
                     html += `<p>${paraText}</p>`;
                 }
             }
@@ -2077,9 +2120,24 @@
             let section = '';
 
             const normalize = (s) => (s || '').trim();
+            const stripLeadingBullet = (s) => String(s || '').replace(/^\s*[-*+]\s+/, '');
+            const stripLeadingQ = (s) => String(s || '').replace(/^\s*(?:q|question)\s*:\s*/i, '');
+            const stripLeadingA = (s) => String(s || '').replace(/^\s*(?:a|answer)\s*:\s*/i, '');
+            const cleanFront = (s) => normalize(stripLeadingQ(stripLeadingBullet(s)));
+            const cleanBack = (s) => normalize(stripLeadingA(stripLeadingBullet(s)));
+            const dedupeKey = (front, back) => {
+                const norm = (v) => String(v || '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+                // Keep it simple + stable: exact Q/A (after our cleaning) collapsed whitespace + lowercase.
+                // This prevents duplicates from multi-pass extraction without accidentally merging distinct cards.
+                return `${norm(front)}\n---\n${norm(back)}`;
+            };
             const pushCard = (front, back, difficulty = null, sourceOrder = null) => {
-                const f = normalize(front);
-                const b = normalize(back);
+                // Avoid "Q: Q: ..." and keep exports consistent (exports add their own Q/A labels).
+                const f = cleanFront(front);
+                const b = cleanBack(back);
                 if (!f) return;
                 cards.push({ front: f, back: b, difficulty, sourceOrder });
             };
@@ -2204,8 +2262,36 @@
                 }
 
                 if (inQuestions) {
-                    // Try split "Q? — A" or "Q?: A" or "Q? - A"
+                    // Support explicit Q:/A: lines (common model output):
+                    // - Q: ...
+                    // - A: ...
+                    // (We strip the prefixes and pair them when adjacent.)
                     if (!item) continue;
+                    const qPref = item.match(/^\s*(?:q|question)\s*:\s*(.+)$/i);
+                    if (qPref) {
+                        const question = qPref[1].trim();
+                        let answer = '';
+                        for (let j = 1; j <= 4 && (i + j) < lines.length; j++) {
+                            const nextRaw = (lines[i + j] || '').trim();
+                            if (!nextRaw) continue;
+                            if (/^#{1,6}\s+/.test(nextRaw)) break;
+                            const nextBullet = nextRaw.match(/^[-*+]\s+(.*)$/);
+                            const nextItem = nextBullet ? nextBullet[1].trim() : nextRaw;
+                            // Stop if we hit another question
+                            if (/^\s*(?:q|question)\s*:\s*/i.test(nextItem)) break;
+                            const aPref = nextItem.match(/^\s*(?:a|answer)\s*:\s*(.+)$/i);
+                            if (aPref) {
+                                answer = aPref[1].trim();
+                                i += j;
+                                break;
+                            }
+                        }
+                        pushCard(question, answer);
+                        continue;
+                    }
+                    // Skip stray answers in the questions section
+                    if (/^\s*(?:a|answer)\s*:\s*/i.test(item)) continue;
+                    // Try split "Q? — A" or "Q?: A" or "Q? - A"
                     const dashSplit = item.split(/\s+[—-]\s+/);
                     if (dashSplit.length >= 2) {
                         pushCard(dashSplit[0], dashSplit.slice(1).join(' — '));
@@ -2296,7 +2382,17 @@
 
             // If any explicit difficulties exist, sort by them; otherwise heuristic by question complexity.
             const anyDifficulty = cards.some(c => !!c.difficulty);
-            const sorted = cards.slice().sort((a, b) => {
+            // De-dupe before sorting (we can get duplicates from multiple extraction passes).
+            const seen = new Set();
+            const unique = [];
+            for (const c of cards) {
+                const k = dedupeKey(c.front, c.back);
+                if (seen.has(k)) continue;
+                seen.add(k);
+                unique.push(c);
+            }
+
+            const sorted = unique.slice().sort((a, b) => {
                 if (anyDifficulty) {
                     const dr = difficultyRank(a.difficulty) - difficultyRank(b.difficulty);
                     if (dr !== 0) return dr;
@@ -3549,16 +3645,62 @@
             }
 
             try {
+                // PDF-only styles so list indentation / spacing renders consistently (independent of app CSS resets).
+                const injectPdfStyles = (rootEl) => {
+                    if (!rootEl) return;
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        .pdf-root { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1a1a1a; }
+                        .pdf-root h1, .pdf-root h2, .pdf-root h3 { margin: 12px 0 8px 0; line-height: 1.25; }
+                        .pdf-root h2 { font-size: 15px; font-weight: 800; }
+                        .pdf-root h3 { font-size: 13px; font-weight: 800; }
+                        .pdf-root p { margin: 0 0 8px 0; line-height: 1.55; }
+                        .pdf-root ul, .pdf-root ol { margin: 6px 0 10px 0; line-height: 1.55; }
+                        /* Bullet lists: enforce indentation + hanging indent for wrapped lines (html2canvas-friendly). */
+                        /* Important: indent the *whole list* so bullets are not to the left of headings. */
+                        .pdf-root ul { list-style: none; padding-left: 18px; margin-left: 0; }
+                        .pdf-root ul li { position: relative; padding-left: 14px; margin: 2px 0; }
+                        .pdf-root ul li::before { content: "•"; position: absolute; left: 0; top: 0; color: #1a1a1a; }
+                        .pdf-root ul ul { margin-top: 4px; margin-bottom: 8px; padding-left: 16px; }
+                        .pdf-root ul ul li::before { content: "◦"; }
+                        /* Ordered lists: keep default numbers but ensure indentation is present. */
+                        .pdf-root ol { padding-left: 22px; }
+                        .pdf-root ol ol { margin-top: 4px; margin-bottom: 8px; padding-left: 22px; }
+                        .pdf-root code.ai-inline-code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.95em; background: #f5f5f5; padding: 1px 4px; border-radius: 4px; }
+                        .pdf-root pre.ai-code-block { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 11px; background: #0b1020; color: #e8eefc; padding: 10px 12px; border-radius: 10px; overflow-wrap: anywhere; white-space: pre-wrap; margin: 10px 0; }
+                        .pdf-root .ai-code-lang { font-size: 10px; letter-spacing: 0.02em; color: rgba(232,238,252,0.75); margin-bottom: 6px; text-transform: uppercase; }
+                    `;
+                    rootEl.prepend(style);
+                };
+
+                const escapeHtml = (s) => (s || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+
+                // Lightweight inline markdown (used for Q/A snippets). Keeps it safe + removes literal ** markers.
+                const formatInlineMarkdownToHtml = (s) => {
+                    const text = escapeHtml(String(s || ''));
+                    return text
+                        .replace(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>')
+                        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\n/g, '<br>');
+                };
+
                 const response = await fetch(`/api/interviews/${currentInterviewId}`);
                 const interview = await response.json();
 
                 const pdfContent = document.createElement('div');
+                pdfContent.className = 'pdf-root';
                 pdfContent.style.padding = '20px 36px';
                 pdfContent.style.fontFamily = 'Inter, sans-serif';
                 pdfContent.style.color = '#1a1a1a';
                 pdfContent.style.maxWidth = '800px';
                 pdfContent.style.margin = '0';
                 pdfContent.style.boxSizing = 'border-box';
+                injectPdfStyles(pdfContent);
 
                 const company = interview.company && interview.company.trim() && interview.company !== 'Generic Company (US)'
                     ? interview.company
@@ -3596,12 +3738,20 @@
 
                 const section = document.createElement('div');
 
-                for (const t of exportable) {
+                for (let topicIdx = 0; topicIdx < exportable.length; topicIdx++) {
+                    const t = exportable[topicIdx];
                     const topicBlock = document.createElement('div');
                     topicBlock.style.margin = '0 0 18px 0';
                     topicBlock.style.paddingBottom = '14px';
                     topicBlock.style.borderBottom = '1px solid #eee';
                     topicBlock.style.pageBreakInside = 'avoid';
+                    // Start each topic on a new page (except the first).
+                    // Use both modern + legacy properties for maximum html2pdf/html2canvas compatibility.
+                    if (topicIdx > 0) {
+                        topicBlock.style.breakBefore = 'page';
+                        topicBlock.style.pageBreakBefore = 'always';
+                        topicBlock.style.marginTop = '0';
+                    }
 
                     const topicTitle = document.createElement('div');
                     topicTitle.style.fontSize = '16px';
@@ -3631,8 +3781,9 @@
 
                         const personal = document.createElement('div');
                         personal.style.fontSize = '12px';
-                        personal.style.whiteSpace = 'pre-wrap';
-                        personal.textContent = String(t.notes).trim();
+                        // Render using the same markdown-aware formatter so lists/indentation look good in PDF
+                        // and "**bold**" does not show literal asterisks.
+                        personal.innerHTML = formatAIGuidance(String(t.notes).trim());
                         topicBlock.appendChild(personal);
                     }
 
@@ -3670,9 +3821,26 @@
                             cards.slice(0, 40).forEach((c) => {
                                 const li = document.createElement('li');
                                 li.style.marginBottom = '8px';
-                                const q = (c.front || '').trim();
-                                const a = (c.back || '').trim();
-                                li.innerHTML = `<strong>Q:</strong> ${q}${a ? `<br><strong>A:</strong> ${a}` : ''}`;
+                                const stripLeadingQA = (s, which) => {
+                                    const t = String(s || '').trim();
+                                    if (!t) return '';
+                                    if (which === 'q') return t.replace(/^\s*(?:[-*+]\s*)?(?:q|question)\s*:\s*/i, '').trim();
+                                    if (which === 'a') return t.replace(/^\s*(?:[-*+]\s*)?(?:a|answer)\s*:\s*/i, '').trim();
+                                    return t;
+                                };
+                                let q = stripLeadingQA((c.front || ''), 'q');
+                                let a = stripLeadingQA((c.back || ''), 'a');
+                                // Extra safety: if the model put an inline "A:" into the question line, split it.
+                                if (!a) {
+                                    const m = q.match(/^(.*?)(?:\s+[—-]\s+|\s+)?A:\s*(.+)$/i);
+                                    if (m) {
+                                        q = m[1].trim();
+                                        a = m[2].trim();
+                                    }
+                                }
+                                const qHtml = formatInlineMarkdownToHtml(q);
+                                const aHtml = a ? formatInlineMarkdownToHtml(a) : '';
+                                li.innerHTML = `<strong>Q:</strong> ${qHtml}<br><strong>A:</strong> ${aHtml}`;
                                 list.appendChild(li);
                             });
                             topicBlock.appendChild(list);
@@ -3690,7 +3858,8 @@
                     filename: `${company.replace(/\s+/g, '_')}_study_notes.pdf`,
                     image: { type: 'jpeg', quality: 0.98 },
                     html2canvas: { scale: 2, useCORS: true },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                    pagebreak: { mode: ['css', 'legacy'] }
                 };
 
                 await html2pdf().set(opt).from(pdfContent).save();
@@ -3778,20 +3947,73 @@
                 const margin = 8.5;
                 const maxW = pageW - margin * 2;
 
-                const safe = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-                const split = (txt, fontSize) => {
+                const stripInlineMarkdown = (s) => {
+                    let out = String(s || '');
+                    // Drop any HTML tags that may be present in cached cards
+                    out = out.replace(/<\/?strong>/g, '');
+                    out = out.replace(/<\/?code[^>]*>/g, '');
+                    out = out.replace(/<\/?[^>]+>/g, '');
+                    // Convert markdown emphasis/code to plain text
+                    out = out.replace(/\*\*(.+?)\*\*/g, '$1');
+                    out = out.replace(/__([^_]+?)__/g, '$1');
+                    out = out.replace(/`([^`]+)`/g, '$1');
+                    return out;
+                };
+
+                const normalizeNewlines = (s) => String(s || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+                // Parse text into blocks (paragraphs + list items) so we can preserve bullets/indentation.
+                const toBlocks = (raw) => {
+                    const blocks = [];
+                    const lines = normalizeNewlines(stripInlineMarkdown(raw)).split('\n');
+                    let para = [];
+
+                    const flushPara = () => {
+                        const t = para.join(' ').replace(/\s+/g, ' ').trim();
+                        if (t) blocks.push({ type: 'p', text: t });
+                        para = [];
+                    };
+
+                    for (const l of lines) {
+                        const line = (l || '').replace(/\t/g, '    ').replace(/\s+$/, '');
+                        const trimmed = line.trim();
+                        if (!trimmed) {
+                            flushPara();
+                            continue;
+                        }
+
+                        const m = line.match(/^(\s*)([-*+]|\d+\.)\s+(.+)$/);
+                        if (m) {
+                            flushPara();
+                            const indent = (m[1] || '').length;
+                            const level = Math.max(0, Math.floor(indent / 2));
+                            const text = (m[3] || '').trim();
+                            if (text) blocks.push({ type: 'li', level, text });
+                            continue;
+                        }
+
+                        para.push(trimmed);
+                    }
+
+                    flushPara();
+                    return blocks;
+                };
+
+                const splitToSize = (txt, widthMm, fontSize) => {
+                    const text = String(txt || '');
+                    if (!text) return [];
                     if (typeof pdf.splitTextToSize === 'function') {
                         pdf.setFontSize(fontSize);
-                        return pdf.splitTextToSize(String(txt || ''), maxW);
+                        return pdf.splitTextToSize(text, widthMm);
                     }
-                    // fallback naive split
-                    const str = String(txt || '');
-                    const words = str.split(/\s+/);
+                    // fallback naive split (by chars)
+                    const approxChars = Math.max(12, Math.floor((widthMm / maxW) * 70));
+                    const words = text.split(/\s+/);
                     const lines = [];
                     let cur = '';
                     for (const w of words) {
                         const next = cur ? `${cur} ${w}` : w;
-                        if (next.length > 70) {
+                        if (next.length > approxChars) {
                             if (cur) lines.push(cur);
                             cur = w;
                         } else {
@@ -3801,6 +4023,8 @@
                     if (cur) lines.push(cur);
                     return lines;
                 };
+
+                const safeHeader = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
                 const drawCard = (p, idx) => {
                     // Border
@@ -3818,8 +4042,8 @@
                     if (typeof pdf.setTextColor === 'function') pdf.setTextColor(100);
                     if (typeof pdf.setFont === 'function') pdf.setFont('helvetica', 'normal');
                     pdf.setFontSize(8);
-                    pdf.text(safe(p.topicTitle).slice(0, 60), margin, margin);
-                    pdf.text(safe(company).slice(0, 30), pageW - margin, margin, { align: 'right' });
+                    pdf.text(safeHeader(p.topicTitle).slice(0, 60), margin, margin);
+                    pdf.text(safeHeader(company).slice(0, 30), pageW - margin, margin, { align: 'right' });
 
                     let y = margin + 8;
 
@@ -3830,10 +4054,48 @@
                     pdf.text('Q', margin, y);
                     y += 5;
 
-                    pdf.setFontSize(12);
-                    const qLines = split(p.q, 12);
-                    pdf.text(qLines, margin, y, { maxWidth: maxW });
-                    y += qLines.length * 5.2;
+                    // Question body (markdown cleaned)
+                    if (typeof pdf.setFont === 'function') pdf.setFont('helvetica', 'normal');
+                    const qBlocks = toBlocks(p.q || '');
+                    const lineHq = 5.2;
+                    const renderBlocks = (blocks, fontSize, lineH, startY, bottomY) => {
+                        let cy = startY;
+                        pdf.setFontSize(fontSize);
+                        for (const b of blocks) {
+                            if (cy > bottomY) break;
+                            if (b.type === 'p') {
+                                const lines = splitToSize(b.text, maxW, fontSize);
+                                for (const ln of lines) {
+                                    if (cy > bottomY) break;
+                                    pdf.text(ln, margin, cy, { maxWidth: maxW });
+                                    cy += lineH;
+                                }
+                                cy += 1.2; // small paragraph gap
+                            } else if (b.type === 'li') {
+                                const indentMm = Math.min(10, (b.level || 0) * 3.6);
+                                const bulletX = margin + indentMm;
+                                const textX = bulletX + 4.0;
+                                const width = Math.max(20, maxW - indentMm - 4.0);
+                                const lines = splitToSize(b.text, width, fontSize);
+                                if (lines.length) {
+                                    if (cy <= bottomY) {
+                                        pdf.text('•', bulletX, cy);
+                                        pdf.text(lines[0], textX, cy, { maxWidth: width });
+                                        cy += lineH;
+                                    }
+                                    for (let i = 1; i < lines.length; i++) {
+                                        if (cy > bottomY) break;
+                                        pdf.text(lines[i], textX, cy, { maxWidth: width });
+                                        cy += lineH;
+                                    }
+                                }
+                                cy += 0.6;
+                            }
+                        }
+                        return cy;
+                    };
+
+                    y = renderBlocks(qBlocks, 12, lineHq, y, pageH - margin - 32);
 
                     // Divider
                     y += 2;
@@ -3848,17 +4110,15 @@
                     y += 5;
 
                     if (typeof pdf.setFont === 'function') pdf.setFont('helvetica', 'normal');
-                    pdf.setFontSize(10);
-                    const aLines = split(p.a || '', 10);
                     const footerY = pageH - margin;
-                    const maxLines = Math.max(1, Math.floor((footerY - y) / 4.6));
-                    const clipped = aLines.slice(0, maxLines);
-                    pdf.text(clipped, margin, y, { maxWidth: maxW });
+                    const aBlocks = toBlocks(p.a || '');
+                    // Leave room for footer line
+                    renderBlocks(aBlocks, 10, 4.6, y, footerY - 6);
 
                     // Footer
                     if (typeof pdf.setTextColor === 'function') pdf.setTextColor(120);
                     pdf.setFontSize(8);
-                    pdf.text(safe(p.category).slice(0, 70), margin, pageH - margin);
+                    pdf.text(safeHeader(p.category).slice(0, 70), margin, pageH - margin);
                     pdf.text(`${idx + 1}/${cardPages.length}`, pageW - margin, pageH - margin, { align: 'right' });
                 };
 

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Study Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+  <style>
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #ff8c42;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      background: rgba(250,250,250,0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      z-index: 10;
+    }
+    .topbar-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--text);
+    }
+    .meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 8px;
+      font-weight: 500;
+    }
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn.primary {
+      border-color: transparent;
+      background: var(--accent);
+      color: white;
+      font-weight: 600;
+    }
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 22px 16px 64px;
+    }
+    .paper {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px 28px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    /* Markdown-ish styles */
+    #content h1 { font-size: 26px; margin: 0 0 14px; }
+    #content h2 { font-size: 18px; margin: 22px 0 10px; border-top: 1px solid var(--border); padding-top: 16px; }
+    #content h3 { font-size: 14px; margin: 14px 0 8px; }
+    #content p { margin: 0 0 10px; color: var(--text); }
+    #content ul, #content ol { margin: 8px 0 12px; padding-left: 22px; }
+    #content li { margin: 3px 0; }
+    #content code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.95em; background: #f3f4f6; padding: 2px 5px; border-radius: 6px; }
+    #content pre { background: #0b1020; color: #e8eefc; padding: 14px 14px; border-radius: 12px; overflow: auto; }
+    @media print {
+      .topbar { display: none; }
+      body { background: white; }
+      .paper { border: none; box-shadow: none; padding: 0; }
+      @page { size: A4; margin: 12mm; }
+    }
+
+    /* PDF/page-break friendliness: avoid splitting list items/headings across pages (html2pdf/html2canvas). */
+    #content h1, #content h2, #content h3,
+    #content p, #content li, #content pre {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    #content ol, #content ul {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+
+    /* KaTeX in exported PDF: reduce clipping and keep formulas within bounds */
+    #content .katex-display {
+      margin: 10px 0;
+      max-width: 100%;
+      overflow: hidden;
+    }
+    #content .katex-display > .katex { max-width: 100%; }
+    .pdf-export #content .katex-display { font-size: 0.98em; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script defer src="/static/vendor/katex/katex.min.js"></script>
+  <script defer src="/static/vendor/katex/contrib/auto-render.min.js"></script>
+  <!-- Avoid html2pdf/html2canvas for this view: it is unreliable with KaTeX (blank/cropped pages). -->
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <div>
+        <span class="title">Study Guide</span>
+        <span class="meta" id="meta"></span>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn" onclick="window.print()">Print</button>
+        <button class="btn" onclick="downloadMarkdown()">Download .md</button>
+        <button class="btn primary" onclick="exportPdf()">Export PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="paper">
+      <div id="content">Loading…</div>
+    </div>
+  </div>
+
+  <script type="application/json" id="guide-json">{{ guide|tojson }}</script>
+  <script>
+    const GUIDE = JSON.parse(document.getElementById('guide-json')?.textContent || '{}');
+    let md = (GUIDE && GUIDE.content_markdown) ? GUIDE.content_markdown : '';
+    const createdAt = (GUIDE && GUIDE.created_at) ? GUIDE.created_at : '';
+    document.getElementById('meta').textContent = createdAt ? `Generated: ${createdAt}` : '';
+
+    function normalizeMathDelimiters(markdown) {
+      if (!markdown) return '';
+      // Convert common model output like:
+      // "Mean: ( \\bar{x} = \\frac{1}{n} \\sum ... )"
+      // into KaTeX-friendly delimiters:
+      // "Mean: \\( \\bar{x} = ... \\)"
+      const lines = String(markdown).split('\n');
+      const out = lines.map((line) => {
+        // Only convert parenthesized segments that look like LaTeX (contain backslash commands or ^/_).
+        // We keep it conservative to avoid breaking normal parentheses.
+        return line.replace(/:\s*\(\s*([^\)]*?)\s*\)/g, (m, inner) => {
+          const s = String(inner || '').trim();
+          if (!s) return m;
+          if (!(/\\[a-zA-Z]+/.test(s) || /[_^]/.test(s))) return m;
+          return `: \\\\(${s}\\\\)`;
+        });
+      });
+      return out.join('\n');
+    }
+
+    md = normalizeMathDelimiters(md);
+
+    function renderMath() {
+      const el = document.getElementById('content');
+      if (!el) return;
+      if (typeof window.renderMathInElement !== 'function') return;
+      try {
+        window.renderMathInElement(el, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\\\[', right: '\\\\]', display: true },
+            { left: '\\\\(', right: '\\\\)', display: false },
+          ],
+          throwOnError: false
+        });
+      } catch (e) {
+        // non-fatal
+      }
+    }
+
+    function renderMathWhenReady(timeoutMs = 3500) {
+      const start = Date.now();
+      return new Promise((resolve) => {
+        const tick = () => {
+          if (typeof window.renderMathInElement === 'function') {
+            renderMath();
+            return resolve(true);
+          }
+          if (Date.now() - start > timeoutMs) return resolve(false);
+          setTimeout(tick, 50);
+        };
+        tick();
+      });
+    }
+
+    // Render markdown -> HTML (then render LaTeX math via KaTeX)
+    try {
+      marked.setOptions({ gfm: true, breaks: true });
+      document.getElementById('content').innerHTML = marked.parse(md || '# No guide found');
+      // KaTeX scripts are loaded with defer; wait until they're ready.
+      renderMathWhenReady();
+    } catch (e) {
+      document.getElementById('content').textContent = md || 'No guide found';
+    }
+
+    function downloadMarkdown() {
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'study_guide.md';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 500);
+    }
+
+    async function exportPdf() {
+      // Deep fix: use the browser print engine for PDF output.
+      // This preserves KaTeX perfectly and avoids blank/cropped pages from canvas-based export.
+      await renderMathWhenReady();
+      try {
+        if (document.fonts && document.fonts.ready) {
+          await Promise.allSettled([
+            document.fonts.load('16px KaTeX_Main'),
+            document.fonts.load('16px KaTeX_Math'),
+            document.fonts.load('16px KaTeX_Size1'),
+            document.fonts.load('16px KaTeX_Size2'),
+            document.fonts.load('16px Inter'),
+          ]);
+          await document.fonts.ready;
+        }
+      } catch (e) {}
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      window.print();
+    }
+  </script>
+</body>
+</html>
+
+

@@ -421,6 +421,45 @@
             </div>
         </div>
 
+        {% if drive_enabled %}
+        <div class="card" style="margin-bottom: 24px;">
+            <h2 style="margin-top: 0; margin-bottom: 8px;">Google Drive (PDF + .ipynb)</h2>
+            <div style="color: var(--text-light); font-size: 0.85rem; margin-bottom: 14px;">
+                Connect Drive, index a folder, then extract topics from <strong>PDF</strong> and <strong>.ipynb</strong> files (incremental; safe for large folders).
+            </div>
+
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 12px;">
+                <button class="btn btn-secondary" type="button" onclick="connectDrive()">🔐 Connect Drive</button>
+                <div id="drive-status" style="font-size: 0.85rem; color: var(--text-light);">Checking Drive status…</div>
+            </div>
+
+            <div class="form-row" style="margin-top: 8px;">
+                <div class="input-group" style="flex: 1;">
+                    <label for="drive-folder-id">Drive Folder ID</label>
+                    <input type="text" id="drive-folder-id" placeholder="e.g. 1a2B3cD4eF... (from Drive URL)">
+                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 6px;">
+                        Tip: open the folder in Drive and copy the ID from the URL (between <code>/folders/</code> and <code>?</code>).
+                    </div>
+                </div>
+                <button class="btn btn-primary" type="button" onclick="driveRunAllDSMid()" id="drive-run-all-btn">Run: Index → Extract → Generate DS Guide</button>
+                <button class="btn btn-secondary" type="button" onclick="driveOpenDSMidGuide()" id="drive-open-ds-btn">Open DS Guide</button>
+            </div>
+
+            <details style="margin-top: 12px;">
+                <summary style="cursor:pointer; color: var(--text-light); font-size: 0.9rem;">Advanced</summary>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px;">
+                    <button class="btn btn-secondary" type="button" onclick="driveIndex()">Index Folder</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveExtractTopics()">Extract Topics (1 batch)</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveGenerateGuide()">Generate Concise (Course) Guide</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveOpenGuide()">Open Concise (Course) Guide</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveGenerateDSMidGuide()">Generate DS (Mid) Guide</button>
+                </div>
+            </details>
+
+            <div id="drive-output" style="margin-top: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); padding: 12px; border-radius: 10px; color: #111;"></div>
+        </div>
+        {% endif %}
+
         <div id="categories-container"></div>
 
         <div class="card">
@@ -482,9 +521,240 @@
             }
         }
 
+        {% if drive_enabled %}
+        function setDriveOutput(obj) {
+            const el = document.getElementById('drive-output');
+            if (!el) return;
+            try {
+                el.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+            } catch (e) {
+                el.textContent = String(obj);
+            }
+        }
+
+        async function refreshDriveStatus() {
+            const el = document.getElementById('drive-status');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/drive/status');
+                if (res.ok) {
+                    const data = await res.json();
+                    el.textContent = `Connected as ${data.email || 'unknown'}`;
+                    el.style.color = 'var(--success)';
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    el.textContent = 'Not connected';
+                    el.style.color = 'var(--text-light)';
+                    if (data && data.auth_url) {
+                        // keep auth_url available via output
+                        setDriveOutput({ hint: 'Click “Connect Drive” to authorize.', auth_url: data.auth_url });
+                    }
+                }
+            } catch (e) {
+                el.textContent = 'Drive status unavailable';
+                el.style.color = 'var(--danger)';
+            }
+        }
+
+        function connectDrive() {
+            // This will request drive.readonly scope (works even on localhost now).
+            window.location.href = '/auth/login?drive=1';
+        }
+
+        async function driveIndex() {
+            const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+            if (!folderId) {
+                showMessage('Please paste a Drive folder ID first', 'error');
+                return;
+            }
+            setDriveOutput('Indexing…');
+            try {
+                const res = await fetch('/api/drive/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_id: folderId })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Index failed');
+                setDriveOutput(data);
+                showMessage(`✅ Indexed ${data.indexed} files`, 'success');
+            } catch (e) {
+                setDriveOutput({ error: e.message || String(e) });
+                showMessage('Drive index error: ' + (e.message || e), 'error');
+            }
+            refreshDriveStatus();
+        }
+
+        async function driveExtractTopics() {
+            setDriveOutput('Extracting topics…');
+            try {
+                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const res = await fetch('/api/drive/extract-topics', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limit: 10, force: false, folder_id: folderId })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Extract failed');
+                setDriveOutput(data);
+                showMessage(`✅ Extracted topics from ${data.count} files`, 'success');
+            } catch (e) {
+                setDriveOutput({ error: e.message || String(e) });
+                showMessage('Drive extract error: ' + (e.message || e), 'error');
+            }
+            refreshDriveStatus();
+        }
+
+        async function driveGenerateGuide() {
+            setDriveOutput('Generating concise guide… (this can take 30–90s)');
+            try {
+                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const res = await fetch('/api/drive/guide/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: 'concise', max_topics: 160, folder_id: folderId })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Guide generation failed');
+                setDriveOutput(data);
+                showMessage('✅ Guide generated!', 'success');
+            } catch (e) {
+                setDriveOutput({ error: e.message || String(e) });
+                showMessage('Guide generation error: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function driveOpenGuide() {
+            try {
+                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const qs = folderId ? `?folder_id=${encodeURIComponent(folderId)}` : '';
+                window.open(`/drive/guide/view/latest${qs}`, '_blank');
+            } catch (e) {
+                showMessage('Open guide error: ' + (e.message || e), 'error');
+            }
+        }
+
+        async function driveGenerateDSMidGuide() {
+            setDriveOutput('Generating DS (mid) interview guide… (this can take 45–120s)');
+            try {
+                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const res = await fetch('/api/drive/guide/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: 'ds_mid', max_topics: 200, folder_id: folderId })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Guide generation failed');
+                setDriveOutput(data);
+                showMessage('✅ DS guide generated!', 'success');
+            } catch (e) {
+                setDriveOutput({ error: e.message || String(e) });
+                showMessage('DS guide generation error: ' + (e.message || e), 'error');
+            }
+        }
+
+        function driveOpenDSMidGuide() {
+            try {
+                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const qs = new URLSearchParams();
+                qs.set('kind', 'ds_mid');
+                if (folderId) qs.set('folder_id', folderId);
+                window.open(`/drive/guide/view/latest?${qs.toString()}`, '_blank');
+            } catch (e) {
+                showMessage('Open DS guide error: ' + (e.message || e), 'error');
+            }
+        }
+
+        function setDriveBusy(isBusy, label) {
+            const runBtn = document.getElementById('drive-run-all-btn');
+            const openBtn = document.getElementById('drive-open-ds-btn');
+            if (runBtn) {
+                runBtn.disabled = !!isBusy;
+                runBtn.textContent = isBusy ? (label || 'Working…') : 'Run: Index → Extract → Generate DS Guide';
+            }
+            if (openBtn) openBtn.disabled = !!isBusy;
+        }
+
+        async function driveRunAllDSMid() {
+            const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+            if (!folderId) {
+                showMessage('Please paste a Drive folder ID first', 'error');
+                return;
+            }
+
+            setDriveBusy(true, 'Checking auth…');
+            try {
+                // Ensure Drive is connected; if not, redirect to auth.
+                const st = await fetch('/api/drive/status');
+                if (!st.ok) {
+                    const data = await st.json().catch(() => ({}));
+                    if (data && data.auth_url) {
+                        setDriveBusy(false);
+                        window.location.href = data.auth_url;
+                        return;
+                    }
+                    throw new Error(data.error || 'Drive not connected');
+                }
+
+                // 1) Index
+                setDriveBusy(true, 'Indexing…');
+                setDriveOutput('Indexing folder…');
+                let res = await fetch('/api/drive/index', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_id: folderId })
+                });
+                let data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Index failed');
+                setDriveOutput(data);
+
+                // 2) Extract in batches
+                const maxBatches = 8; // ~80 files per run
+                for (let i = 0; i < maxBatches; i++) {
+                    setDriveBusy(true, `Extracting… (${i + 1}/${maxBatches})`);
+                    res = await fetch('/api/drive/extract-topics', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ limit: 10, force: false, folder_id: folderId })
+                    });
+                    data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Extract failed');
+                    setDriveOutput(data);
+                    // Stop early when nothing left to process.
+                    if (!data || !data.count) break;
+                    // Small pause so UI updates feel responsive.
+                    await new Promise(r => setTimeout(r, 250));
+                }
+
+                // 3) Generate DS guide
+                setDriveBusy(true, 'Generating DS guide…');
+                setDriveOutput('Generating DS (mid) interview guide…');
+                res = await fetch('/api/drive/guide/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: 'ds_mid', max_topics: 220, folder_id: folderId })
+                });
+                data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Guide generation failed');
+                setDriveOutput(data);
+                showMessage('✅ DS guide generated!', 'success');
+
+            } catch (e) {
+                setDriveOutput({ error: e.message || String(e) });
+                showMessage('Run failed: ' + (e.message || e), 'error');
+            } finally {
+                setDriveBusy(false);
+                refreshDriveStatus();
+            }
+        }
+        {% endif %}
+
         // Initialize
         loadSettings();
         loadTopics();
+        {% if drive_enabled %}
+        refreshDriveStatus();
+        {% endif %}
 
         // Recursive function to render a node (category/subcategory) at any depth
         function renderNode(node, path, depth = 0) {

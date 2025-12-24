@@ -1,10 +1,12 @@
 from flask import Flask, render_template, request, jsonify, session, redirect
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 import sqlite3
 import os
 import json
 import time
+import io
+import re
 
 # PostgreSQL support
 try:
@@ -87,6 +89,9 @@ app.config['SESSION_COOKIE_SECURE'] = os.getenv('RAILWAY_ENVIRONMENT') is not No
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
+# Drive import is a local-only feature by default (do not expose UI/flows on deployed environments).
+DRIVE_FEATURE_ENABLED = os.getenv('RAILWAY_ENVIRONMENT') is None
+
 # Database configuration
 # Use Railway's DATABASE_URL if available (PostgreSQL), otherwise use local SQLite
 DATABASE_URL = os.getenv('DATABASE_URL')
@@ -108,9 +113,13 @@ if GOOGLE_OAUTH_AVAILABLE:
     GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET')
     ADMIN_EMAILS = os.getenv('ADMIN_EMAILS', '').split(',')
+
+    # If credentials are not configured, treat OAuth as disabled (prevents broken auth flows on deploy).
+    OAUTH_CONFIGURED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
     
     # OAuth scopes
     SCOPES = ['openid', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile']
+    DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
     
     # OAuth flow configuration
     CLIENT_CONFIG = {
@@ -126,6 +135,10 @@ else:
     GOOGLE_CLIENT_ID = None
     GOOGLE_CLIENT_SECRET = None
     ADMIN_EMAILS = []
+    OAUTH_CONFIGURED = False
+    SCOPES = []
+    DRIVE_READONLY_SCOPE = None
+    CLIENT_CONFIG = None
 
 def get_db():
     """Get database connection - supports both SQLite and PostgreSQL"""
@@ -298,6 +311,90 @@ def init_db():
         )
     ''')
 
+    # OAuth token store (server-side; avoids cookie session limits)
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS oauth_tokens (
+            email TEXT NOT NULL,
+            scopes_key TEXT NOT NULL,
+            token_json TEXT NOT NULL,
+            updated_at TEXT,
+            PRIMARY KEY (email, scopes_key)
+        )
+    ''')
+
+    # Drive file index + extracted topics (for incremental processing)
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS drive_files (
+            file_id TEXT PRIMARY KEY,
+            folder_id TEXT,
+            name TEXT,
+            mime_type TEXT,
+            modified_time TEXT,
+            size INTEGER,
+            path TEXT,
+            parent_id TEXT,
+            extracted_topics_json TEXT,
+            extracted_at TEXT,
+            indexed_at TEXT
+        )
+    ''')
+
+    # Add folder_id column if missing (existing DBs)
+    if not USE_POSTGRESQL:
+        try:
+            cursor.execute('ALTER TABLE drive_files ADD COLUMN folder_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+    else:
+        try:
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='drive_files' AND column_name='folder_id'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE drive_files ADD COLUMN folder_id TEXT')
+        except Exception:
+            pass
+
+    # Drive-generated study guides (e.g., concise master doc)
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS drive_guides (
+            {id_col},
+            folder_id TEXT,
+            kind TEXT,
+            content_markdown TEXT,
+            created_at TEXT
+        )
+    ''')
+
+    # Add folder_id column if missing (existing DBs)
+    if not USE_POSTGRESQL:
+        try:
+            cursor.execute('ALTER TABLE drive_guides ADD COLUMN folder_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+    else:
+        try:
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='drive_guides' AND column_name='folder_id'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE drive_guides ADD COLUMN folder_id TEXT')
+        except Exception:
+            pass
+
+    # Optional cache of per-topic concise summaries to avoid regenerating repeatedly
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS drive_topic_summaries (
+            topic_key TEXT PRIMARY KEY,
+            summary_markdown TEXT,
+            updated_at TEXT
+        )
+    ''')
+
     # Global AI guidance cache (reusable across interviews)
     # Keys are normalized to maximize cache hits and avoid duplicate regeneration.
     cursor.execute(f'''
@@ -354,7 +451,7 @@ def get_setting(key, default=None):
 def set_setting(key, value):
     """Upsert a setting value into DB."""
     conn = get_db()
-    updated_at = datetime.utcnow().isoformat()
+    updated_at = datetime.now(timezone.utc).isoformat()
     if USE_POSTGRESQL:
         cursor = db_execute(conn, '''
             INSERT INTO app_settings (key, value, updated_at)
@@ -374,6 +471,84 @@ def set_setting(key, value):
         ''', (key, str(value), updated_at))
     conn.commit()
     conn.close()
+
+def _scopes_key(scopes):
+    """Stable key for token storage."""
+    uniq = sorted(set(scopes or []))
+    return ' '.join(uniq)
+
+def _get_token_json(email, scopes):
+    """Fetch token JSON for a user+scopes from DB."""
+    if not email:
+        return None
+    conn = get_db()
+    key = _scopes_key(scopes)
+    try:
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, 'SELECT token_json FROM oauth_tokens WHERE email = %s AND scopes_key = %s LIMIT 1', (email, key))
+            row = db_fetchone(cursor)
+            cursor.close()
+            conn.close()
+            if not row:
+                return None
+            return dict(row).get('token_json')
+        else:
+            cursor = db_execute(conn, 'SELECT token_json FROM oauth_tokens WHERE email = ? AND scopes_key = ? LIMIT 1', (email, key))
+            row = db_fetchone(cursor)
+            conn.close()
+            if not row:
+                return None
+            return row[0]
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+def _set_token_json(email, scopes, token_json):
+    """Upsert token JSON for a user+scopes into DB."""
+    if not email or not token_json:
+        return
+    conn = get_db()
+    key = _scopes_key(scopes)
+    updated_at = datetime.now(timezone.utc).isoformat()
+    if USE_POSTGRESQL:
+        cursor = db_execute(conn, '''
+            INSERT INTO oauth_tokens (email, scopes_key, token_json, updated_at)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (email, scopes_key) DO UPDATE SET
+                token_json = EXCLUDED.token_json,
+                updated_at = EXCLUDED.updated_at
+        ''', (email, key, str(token_json), updated_at))
+        cursor.close()
+    else:
+        db_execute(conn, '''
+            INSERT INTO oauth_tokens (email, scopes_key, token_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(email, scopes_key) DO UPDATE SET
+                token_json = excluded.token_json,
+                updated_at = excluded.updated_at
+        ''', (email, key, str(token_json), updated_at))
+    conn.commit()
+    conn.close()
+
+def _get_google_credentials(email, scopes):
+    """Build google Credentials from stored token_json and refresh if needed."""
+    if not GOOGLE_OAUTH_AVAILABLE:
+        return None
+    token_json = _get_token_json(email, scopes)
+    if not token_json:
+        return None
+    try:
+        info = json.loads(token_json) if isinstance(token_json, str) else token_json
+        creds = Credentials.from_authorized_user_info(info, scopes=scopes)
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            _set_token_json(email, scopes, creds.to_json())
+        return creds
+    except Exception:
+        return None
 
 def _normalize_cache_key(value):
     """Normalize strings for cache keys (stable across whitespace/case variations)."""
@@ -429,7 +604,7 @@ def _upsert_cached_ai_guidance(position, topic_name, topic_path, ai_guidance, mo
     position_key = _normalize_cache_key(position)
     topic_key = _normalize_cache_key(topic_name)
     topic_path_key = _normalize_cache_key(topic_path)
-    updated_at = datetime.utcnow().isoformat()
+    updated_at = datetime.now(timezone.utc).isoformat()
 
     try:
         if USE_POSTGRESQL:
@@ -515,7 +690,7 @@ def _upsert_cached_study_notes(position, topic_name, topic_path, notes_markdown,
     position_key = _normalize_cache_key(position)
     topic_key = _normalize_cache_key(topic_name)
     topic_path_key = _normalize_cache_key(topic_path)
-    updated_at = datetime.utcnow().isoformat()
+    updated_at = datetime.now(timezone.utc).isoformat()
 
     try:
         if USE_POSTGRESQL:
@@ -645,14 +820,19 @@ def login_required(f):
             print("DEBUG: Local development detected, bypassing OAuth")
             return f(*args, **kwargs)
         
-        if not GOOGLE_OAUTH_AVAILABLE:
+        if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
             return f(*args, **kwargs)  # Allow access if OAuth not configured
         
         # Check if user is logged in
         if ('user_email' not in session or 
-            not session.get('user_email') or 
-            'credentials' not in session):
+            not session.get('user_email')):
             print("DEBUG: No valid session found, redirecting to login")
+            return redirect('/auth/login')
+
+        # Require a stored token for base scopes (server-side)
+        creds = _get_google_credentials(session.get('user_email'), SCOPES)
+        if not creds:
+            print("DEBUG: No stored OAuth token found, redirecting to login")
             return redirect('/auth/login')
         
         # Check if user is admin
@@ -663,10 +843,28 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def drive_login_required(f):
+    """Require OAuth with Drive read-only scope (no localhost bypass)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not DRIVE_FEATURE_ENABLED:
+            return jsonify({'error': 'Not found'}), 404
+        if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
+            return jsonify({'error': 'Google OAuth not available. Install google-auth-oauthlib and google-api-python-client.'}), 500
+        email = session.get('user_email')
+        if not email:
+            return jsonify({'error': 'Not authenticated', 'auth_url': '/auth/login?drive=1'}), 401
+        scopes = SCOPES + [DRIVE_READONLY_SCOPE]
+        creds = _get_google_credentials(email, scopes)
+        if not creds:
+            return jsonify({'error': 'Drive not connected', 'auth_url': '/auth/login?drive=1'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
 @app.route('/auth/login')
 def auth_login():
     """Initiate Google OAuth login"""
-    if not GOOGLE_OAUTH_AVAILABLE:
+    if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
         return redirect('/admin')  # Skip auth if not configured
     
     # For local development, redirect directly to admin
@@ -674,12 +872,25 @@ def auth_login():
                request.host.startswith('127.0.0.1') or
                request.host.startswith('10.'))
     
-    if is_local:
+    # For local development, only bypass for admin access.
+    # Drive integration requires real OAuth even on localhost, but we keep Drive feature local-only by default.
+    if request.args.get('drive') == '1' and not DRIVE_FEATURE_ENABLED:
+        return redirect('/admin')
+    if is_local and request.args.get('drive') != '1':
         return redirect('/admin')
     
     try:
+        # Local dev: allow OAuth over http://localhost (otherwise oauthlib blocks with insecure_transport).
+        if is_local:
+            os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
+        scopes = SCOPES
+        if request.args.get('drive') == '1':
+            scopes = SCOPES + [DRIVE_READONLY_SCOPE]
+        session['oauth_scopes'] = scopes
+
         # Create flow with proper configuration
-        flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
+        flow = Flow.from_client_config(CLIENT_CONFIG, scopes)
         
         # Construct redirect URI - ensure HTTPS for Railway
         if 'railway.app' in request.host or os.getenv('RAILWAY_ENVIRONMENT'):
@@ -693,7 +904,8 @@ def auth_login():
         
         authorization_url, state = flow.authorization_url(
             access_type='offline',
-            include_granted_scopes='true'
+            include_granted_scopes='true',
+            prompt='consent'
         )
         
         session['state'] = state
@@ -707,12 +919,20 @@ def auth_login():
 @app.route('/auth/callback')
 def auth_callback():
     """Handle Google OAuth callback"""
-    if not GOOGLE_OAUTH_AVAILABLE:
+    if not GOOGLE_OAUTH_AVAILABLE or not OAUTH_CONFIGURED:
         return redirect('/admin')
     
     try:
+        # Local dev: allow OAuth over http://localhost (otherwise oauthlib blocks with insecure_transport).
+        is_local = (request.host.startswith('localhost') or 
+                    request.host.startswith('127.0.0.1') or
+                    request.host.startswith('10.'))
+        if is_local:
+            os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+
+        scopes = session.get('oauth_scopes') or SCOPES
         # Create flow
-        flow = Flow.from_client_config(CLIENT_CONFIG, SCOPES)
+        flow = Flow.from_client_config(CLIENT_CONFIG, scopes)
         
         # Construct redirect URI - ensure HTTPS for Railway
         if 'railway.app' in request.host or os.getenv('RAILWAY_ENVIRONMENT'):
@@ -745,7 +965,8 @@ def auth_callback():
         # Store user info in session
         session['user_email'] = email
         session['user_name'] = name
-        session['credentials'] = credentials.to_json()
+        # Store tokens server-side; cookie sessions can overflow with OAuth JSON.
+        _set_token_json(email, scopes, credentials.to_json())
         
         return redirect('/admin')
         
@@ -759,14 +980,14 @@ def auth_logout():
     # Clear all session data
     session.clear()
     
-    if 'credentials' in session:
-        del session['credentials']
     if 'user_email' in session:
         del session['user_email']
     if 'user_name' in session:
         del session['user_name']
     if 'state' in session:
         del session['state']
+    if 'oauth_scopes' in session:
+        del session['oauth_scopes']
     
     session.permanent = False
     return redirect('/')
@@ -774,7 +995,947 @@ def auth_logout():
 @app.route('/admin')
 @login_required
 def admin():
-    return render_template('admin.html', session=session)
+    return render_template('admin.html', session=session, drive_enabled=DRIVE_FEATURE_ENABLED)
+
+@app.route('/drive/guide/view/latest')
+@drive_login_required
+def drive_guide_view_latest():
+    kind = (request.args.get('kind') or '').strip().lower() or None
+    folder_id = (request.args.get('folder_id') or '').strip() or None
+    guide = _fetch_latest_drive_guide(kind=kind, folder_id=folder_id)
+    if not guide:
+        guide = {'content_markdown': '# No guide generated yet\n\nGo back to Admin → Drive and click **Generate Concise Guide**.\n', 'created_at': ''}
+    return render_template('drive_guide_view.html', guide=guide)
+
+# ---- Google Drive (PDF + ipynb) ingestion ----
+
+def _drive_service_for_session():
+    email = session.get('user_email')
+    scopes = SCOPES + [DRIVE_READONLY_SCOPE]
+    creds = _get_google_credentials(email, scopes)
+    if not creds:
+        return None
+    return build('drive', 'v3', credentials=creds)
+
+def _drive_list_folder_recursive(service, root_folder_id, include_subfolders=True, max_files=20000):
+    """
+    Recursively list files in a Drive folder. Returns list of dicts with path + metadata.
+    Limits to max_files to avoid runaway indexing.
+    """
+    results = []
+    queue = [(root_folder_id, '')]  # (folder_id, path_prefix)
+    seen_folders = set()
+
+    while queue and len(results) < max_files:
+        folder_id, prefix = queue.pop(0)
+        if folder_id in seen_folders:
+            continue
+        seen_folders.add(folder_id)
+
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields="nextPageToken, files(id,name,mimeType,modifiedTime,size,parents)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                pageSize=1000,
+                pageToken=page_token
+            ).execute()
+            files = resp.get('files', [])
+
+            for f in files:
+                name = f.get('name') or ''
+                mime = f.get('mimeType') or ''
+                is_folder = mime == 'application/vnd.google-apps.folder'
+                path = f"{prefix}/{name}".lstrip('/')
+                item = {
+                    'id': f.get('id'),
+                    'name': name,
+                    'mimeType': mime,
+                    'modifiedTime': f.get('modifiedTime'),
+                    'size': int(f.get('size') or 0),
+                    'parents': f.get('parents') or [],
+                    'path': path,
+                    'isFolder': is_folder
+                }
+                results.append(item)
+                if include_subfolders and is_folder and item['id']:
+                    queue.append((item['id'], path))
+
+                if len(results) >= max_files:
+                    break
+
+            page_token = resp.get('nextPageToken')
+            if not page_token or len(results) >= max_files:
+                break
+
+    return results
+
+def _drive_download_bytes(service, file_id):
+    """Download a file's bytes from Drive."""
+    req = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+    fh = io.BytesIO()
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+        downloader = MediaIoBaseDownload(fh, req)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+    except Exception:
+        data = req.execute()
+        fh.write(data if isinstance(data, (bytes, bytearray)) else bytes(data))
+    return fh.getvalue()
+
+def _extract_text_ipynb(raw_bytes, max_chars=120000):
+    """Extract text content from a Jupyter notebook (.ipynb)."""
+    try:
+        data = json.loads(raw_bytes.decode('utf-8', errors='ignore'))
+    except Exception:
+        try:
+            data = json.loads(raw_bytes)
+        except Exception:
+            return ''
+    cells = data.get('cells', []) if isinstance(data, dict) else []
+    parts = []
+    for c in cells:
+        ctype = c.get('cell_type')
+        src = c.get('source', '')
+        if isinstance(src, list):
+            src = ''.join(src)
+        src = str(src or '')
+        if ctype == 'markdown':
+            parts.append(src)
+        elif ctype == 'code':
+            code = src.strip()
+            if not code:
+                continue
+            keep = []
+            for line in code.splitlines():
+                l = line.strip()
+                if not l:
+                    continue
+                if l.startswith('import ') or l.startswith('from '):
+                    keep.append(line)
+                elif l.startswith('def ') or l.startswith('class '):
+                    keep.append(line)
+                elif l.startswith('#'):
+                    keep.append(line)
+            if keep:
+                parts.append("```python\n" + "\n".join(keep[:80]) + "\n```")
+    text = "\n\n".join(parts).strip()
+    return text[:max_chars]
+
+def _extract_text_pdf(raw_bytes, max_chars=160000):
+    """Extract text from a PDF using PyPDF2 (best-effort)."""
+    try:
+        from PyPDF2 import PdfReader
+    except Exception:
+        return ''
+    try:
+        reader = PdfReader(io.BytesIO(raw_bytes))
+        out = []
+        for page in reader.pages:
+            try:
+                t = (page.extract_text() or '').strip()
+                if t:
+                    out.append(t)
+            except Exception:
+                continue
+            if sum(len(x) for x in out) > max_chars:
+                break
+        text = "\n\n".join(out).strip()
+        return text[:max_chars]
+    except Exception:
+        return ''
+
+def _extract_candidate_topics_heuristic(text, max_topics=30):
+    """Quick heuristic topic extractor (markdown headings + title-like lines)."""
+    if not text:
+        return []
+    topics = []
+    seen = set()
+    for line in text.splitlines():
+        l = line.strip()
+        if not l:
+            continue
+        m = re.match(r'^(#{1,6})\s+(.+)$', l)
+        if m:
+            title = m.group(2).strip().strip('#').strip()
+            if 3 <= len(title) <= 90:
+                k = title.lower()
+                if k not in seen:
+                    seen.add(k)
+                    topics.append(title)
+        if len(l) <= 60 and re.match(r'^[A-Za-z0-9][A-Za-z0-9\s\-\(\)\./:,&]+$', l) and l[0].isupper():
+            if re.match(r'^(Answer|Page|Figure|Table)\b', l, re.I):
+                continue
+            k = l.lower()
+            if k not in seen:
+                seen.add(k)
+                topics.append(l)
+        if len(topics) >= max_topics:
+            break
+    return topics[:max_topics]
+
+def _ai_extract_topics(text, max_topics=20, title_hint=None):
+    """Use configured AI provider to extract a concise topic list."""
+    if not text:
+        return []
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    gemini_key = os.environ.get('GOOGLE_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    prompt = f"""
+You are extracting study topics from course material.
+Return ONLY a JSON array of strings (no markdown, no extra keys).
+Constraints:
+- 8 to {max_topics} items
+- concise (2-6 words each), deduplicated, ordered from fundamental → advanced
+
+Title: {title_hint or ''}
+
+Material:
+{text[:20000]}
+""".strip()
+    try:
+        if groq_key and Groq is not None:
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=600
+            )
+            raw = resp.choices[0].message.content.strip()
+        elif gemini_key and genai is not None:
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel('gemini-pro')
+            raw = (model.generate_content(prompt).text or '').strip()
+        else:
+            return []
+        m = re.search(r'\[[\s\S]*\]', raw)
+        if not m:
+            return []
+        arr = json.loads(m.group(0))
+        if not isinstance(arr, list):
+            return []
+        cleaned = []
+        seen = set()
+        for t in arr:
+            s = str(t).strip()
+            if not s:
+                continue
+            k = s.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            cleaned.append(s)
+        return cleaned[:max_topics]
+    except Exception:
+        return []
+
+@app.route('/api/drive/status', methods=['GET'])
+@drive_login_required
+def drive_status():
+    return jsonify({'connected': True, 'email': session.get('user_email')})
+
+@app.route('/api/drive/index', methods=['POST'])
+@drive_login_required
+def drive_index():
+    """Index PDFs and ipynb files in a Drive folder (metadata-only)."""
+    data = request.get_json(silent=True) or {}
+    folder_id = (data.get('folder_id') or '').strip()
+    if not folder_id:
+        return jsonify({'error': 'folder_id is required'}), 400
+
+    svc = _drive_service_for_session()
+    if not svc:
+        return jsonify({'error': 'Drive not connected', 'auth_url': '/auth/login?drive=1'}), 401
+
+    items = _drive_list_folder_recursive(svc, folder_id, include_subfolders=True, max_files=20000)
+    now = datetime.now(timezone.utc).isoformat()
+    # Remember which folder we’re working with (used as default scope for extraction/guide generation).
+    set_setting('drive_last_folder_id', folder_id)
+
+    wanted = []
+    for it in items:
+        if it.get('isFolder'):
+            continue
+        name = (it.get('name') or '')
+        mime = (it.get('mimeType') or '')
+        is_pdf = mime == 'application/pdf' or name.lower().endswith('.pdf')
+        is_ipynb = name.lower().endswith('.ipynb') or mime in ('application/x-ipynb+json',)
+        if is_pdf or is_ipynb:
+            wanted.append(it)
+
+    conn = get_db()
+    try:
+        for it in wanted:
+            file_id = it.get('id')
+            if not file_id:
+                continue
+            name = it.get('name') or ''
+            mime = it.get('mimeType') or ''
+            modified = it.get('modifiedTime')
+            size = int(it.get('size') or 0)
+            path = it.get('path') or name
+            parent_id = (it.get('parents') or [None])[0]
+
+            if USE_POSTGRESQL:
+                cur = db_execute(conn, '''
+                    INSERT INTO drive_files (file_id, folder_id, name, mime_type, modified_time, size, path, parent_id, indexed_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (file_id) DO UPDATE SET
+                        folder_id = EXCLUDED.folder_id,
+                        name = EXCLUDED.name,
+                        mime_type = EXCLUDED.mime_type,
+                        modified_time = EXCLUDED.modified_time,
+                        size = EXCLUDED.size,
+                        path = EXCLUDED.path,
+                        parent_id = EXCLUDED.parent_id,
+                        indexed_at = EXCLUDED.indexed_at
+                ''', (file_id, folder_id, name, mime, modified, size, path, parent_id, now))
+                cur.close()
+            else:
+                db_execute(conn, '''
+                    INSERT INTO drive_files (file_id, folder_id, name, mime_type, modified_time, size, path, parent_id, indexed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(file_id) DO UPDATE SET
+                        folder_id = excluded.folder_id,
+                        name = excluded.name,
+                        mime_type = excluded.mime_type,
+                        modified_time = excluded.modified_time,
+                        size = excluded.size,
+                        path = excluded.path,
+                        parent_id = excluded.parent_id,
+                        indexed_at = excluded.indexed_at
+                ''', (file_id, folder_id, name, mime, modified, size, path, parent_id, now))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        'indexed': len(wanted),
+        'total_seen': len(items),
+        'pdf_count': sum(1 for x in wanted if (x.get('mimeType') == 'application/pdf' or (x.get('name') or '').lower().endswith('.pdf'))),
+        'ipynb_count': sum(1 for x in wanted if (x.get('name') or '').lower().endswith('.ipynb')),
+    })
+
+@app.route('/api/drive/extract-topics', methods=['POST'])
+@drive_login_required
+def drive_extract_topics():
+    """Download unprocessed files and extract topic lists."""
+    data = request.get_json(silent=True) or {}
+    limit = int(data.get('limit') or 10)
+    if limit < 1 or limit > 100:
+        limit = 10
+    force = bool(data.get('force') or False)
+    folder_id = (data.get('folder_id') or get_setting('drive_last_folder_id', '') or '').strip()
+    if not folder_id:
+        return jsonify({'error': 'folder_id is required (index a folder first)'}), 400
+
+    svc = _drive_service_for_session()
+    if not svc:
+        return jsonify({'error': 'Drive not connected', 'auth_url': '/auth/login?drive=1'}), 401
+
+    conn = get_db()
+    rows = []
+    try:
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, '''
+                SELECT file_id, folder_id, name, mime_type, modified_time, extracted_at
+                FROM drive_files
+                WHERE folder_id = %s
+                ORDER BY indexed_at DESC NULLS LAST
+                LIMIT %s
+            ''', (folder_id, max(limit * 5, limit),))
+            rows = [dict(r) for r in db_fetchall(cur)]
+            cur.close()
+        else:
+            cur = db_execute(conn, '''
+                SELECT file_id, folder_id, name, mime_type, modified_time, extracted_at
+                FROM drive_files
+                WHERE folder_id = ?
+                ORDER BY indexed_at DESC
+                LIMIT ?
+            ''', (folder_id, max(limit * 5, limit),))
+            rows = [dict(r) for r in db_fetchall(cur)]
+    finally:
+        conn.close()
+
+    processed = []
+    for f in rows:
+        if len(processed) >= limit:
+            break
+        if not force and f.get('extracted_at'):
+            continue
+        file_id = f.get('file_id')
+        name = f.get('name') or ''
+        mime = f.get('mime_type') or ''
+        if not file_id:
+            continue
+        try:
+            raw = _drive_download_bytes(svc, file_id)
+            is_pdf = mime == 'application/pdf' or name.lower().endswith('.pdf')
+            is_ipynb = name.lower().endswith('.ipynb') or mime in ('application/x-ipynb+json',)
+            if is_ipynb:
+                text = _extract_text_ipynb(raw)
+            elif is_pdf:
+                text = _extract_text_pdf(raw)
+            else:
+                continue
+            heuristic = _extract_candidate_topics_heuristic(text, max_topics=30)
+            ai_topics = _ai_extract_topics(text, max_topics=20, title_hint=name) if text else []
+            topics = ai_topics or heuristic
+
+            conn = get_db()
+            try:
+                now = datetime.now(timezone.utc).isoformat()
+                payload = json.dumps({'topics': topics, 'heuristic': heuristic[:30], 'ai': ai_topics[:20]}, ensure_ascii=False)
+                if USE_POSTGRESQL:
+                    cur = db_execute(conn, '''
+                        UPDATE drive_files
+                        SET extracted_topics_json = %s,
+                            extracted_at = %s
+                        WHERE file_id = %s
+                    ''', (payload, now, file_id))
+                    cur.close()
+                else:
+                    db_execute(conn, '''
+                        UPDATE drive_files
+                        SET extracted_topics_json = ?,
+                            extracted_at = ?
+                        WHERE file_id = ?
+                    ''', (payload, now, file_id))
+                conn.commit()
+            finally:
+                conn.close()
+
+            processed.append({'file_id': file_id, 'name': name, 'topics': topics})
+        except Exception as e:
+            processed.append({'file_id': file_id, 'name': name, 'error': str(e)})
+
+    return jsonify({'processed': processed, 'count': len(processed)})
+
+def _topic_key(topic):
+    return ' '.join(str(topic or '').strip().lower().split())
+
+def _get_drive_topic_summary(topic):
+    """Fetch cached concise summary for a topic."""
+    key = _topic_key(topic)
+    if not key:
+        return None
+    conn = get_db()
+    try:
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, 'SELECT summary_markdown FROM drive_topic_summaries WHERE topic_key = %s LIMIT 1', (key,))
+            row = db_fetchone(cur)
+            cur.close()
+            conn.close()
+            return dict(row).get('summary_markdown') if row else None
+        else:
+            cur = db_execute(conn, 'SELECT summary_markdown FROM drive_topic_summaries WHERE topic_key = ? LIMIT 1', (key,))
+            row = db_fetchone(cur)
+            conn.close()
+            return row[0] if row else None
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+def _set_drive_topic_summary(topic, summary_markdown):
+    """Upsert cached concise summary for a topic."""
+    key = _topic_key(topic)
+    if not key or not summary_markdown:
+        return
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    if USE_POSTGRESQL:
+        cur = db_execute(conn, '''
+            INSERT INTO drive_topic_summaries (topic_key, summary_markdown, updated_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (topic_key) DO UPDATE SET
+                summary_markdown = EXCLUDED.summary_markdown,
+                updated_at = EXCLUDED.updated_at
+        ''', (key, str(summary_markdown), now))
+        cur.close()
+    else:
+        db_execute(conn, '''
+            INSERT INTO drive_topic_summaries (topic_key, summary_markdown, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(topic_key) DO UPDATE SET
+                summary_markdown = excluded.summary_markdown,
+                updated_at = excluded.updated_at
+        ''', (key, str(summary_markdown), now))
+    conn.commit()
+    conn.close()
+
+def _ai_concise_topic_bullets(topics):
+    """
+    Generate concise review bullets for a list of topics.
+    Returns markdown text.
+    """
+    topics = [t for t in (topics or []) if str(t or '').strip()]
+    if not topics:
+        return ''
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    gemini_key = os.environ.get('GOOGLE_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    if not ((groq_key and Groq is not None) or (gemini_key and genai is not None)):
+        raise Exception('No AI API key configured (set GROQ_API_KEY or GOOGLE_API_KEY).')
+
+    topic_list = "\n".join([f"- {t}" for t in topics])
+    prompt = f"""
+You are producing a CONCISE review study guide for an AI/ML course.
+For EACH topic below, output a markdown section exactly like:
+
+## <Topic>
+- <bullet 1>
+- <bullet 2>
+- <bullet 3>
+- <bullet 4>
+
+Rules:
+- 4 to 7 bullets per topic
+- bullets must be short, high-signal (definitions, key formula/intuition, common pitfall, when to use)
+- avoid long paragraphs
+- do NOT include any extra commentary outside the topic sections
+- write any formulas using LaTeX (use \\( ... \\) inline and $$ ... $$ for display)
+
+Topics:
+{topic_list}
+""".strip()
+
+    if groq_key and Groq is not None:
+        client = Groq(api_key=groq_key)
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.25,
+            max_tokens=1800
+        )
+        return resp.choices[0].message.content.strip()
+    # Gemini fallback
+    genai.configure(api_key=gemini_key)
+    model = genai.GenerativeModel('gemini-pro')
+    return (model.generate_content(prompt).text or '').strip()
+
+def _module_from_path(path):
+    p = (path or '').strip()
+    if not p:
+        return 'Misc'
+    return p.split('/')[0].strip() or 'Misc'
+
+def _module_sort_key(name):
+    # Sort by leading number if present: "1 - Basic Statistics" -> (1, name)
+    m = re.match(r'^\s*(\d+)\s*[-–—]', str(name or ''))
+    if m:
+        return (int(m.group(1)), str(name))
+    return (10**9, str(name))
+
+def _is_noise_topic(topic):
+    """
+    Filter out low-signal notebook operational topics that clutter a study guide.
+    Keep this conservative.
+    """
+    t = _topic_key(topic)
+    if not t:
+        return True
+    noise = [
+        'importing libraries',
+        'import libraries',
+        'scipy stats',
+        'loading data',
+        'load data',
+        'data preparation',
+        'data preprocessing',
+        'data cleaning',
+        'reading data',
+        'visualization',
+        'plotting',
+        'exploratory data analysis',
+        'eda',
+        'installing',
+        'setup',
+    ]
+    return any(n in t for n in noise)
+
+def _ai_concise_module_review(module_name, topics):
+    """
+    Generate a concise, organized review section for a module:
+    - Module overview bullets
+    - Topic bullets under ### headings
+    """
+    topics = [t for t in (topics or []) if str(t or '').strip()]
+    if not topics:
+        return ''
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    gemini_key = os.environ.get('GOOGLE_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    if not ((groq_key and Groq is not None) or (gemini_key and genai is not None)):
+        raise Exception('No AI API key configured (set GROQ_API_KEY or GOOGLE_API_KEY).')
+
+    topic_list = "\n".join([f"- {t}" for t in topics])
+    prompt = f"""
+You are producing a CONCISE review study guide section for this module:
+Module: {module_name}
+
+Output markdown with EXACT structure:
+
+## {module_name}
+### Module overview
+- <4-8 bullets (high-signal)>
+
+Then for EACH topic below:
+### <Topic>
+- <4-7 bullets>
+
+Rules:
+- Bullets must be short, high-signal (definition, key intuition/formula, common pitfall, when to use).
+- Avoid long paragraphs.
+- Do not include any content outside this structure.
+- Write formulas using LaTeX with proper delimiters: use \\( ... \\) inline and $$ ... $$ for display.
+- Do NOT wrap formulas in plain parentheses like "( ... )" unless those parentheses are part of the LaTeX itself.
+
+Topics:
+{topic_list}
+""".strip()
+
+    if groq_key and Groq is not None:
+        client = Groq(api_key=groq_key)
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.25,
+            max_tokens=2200
+        )
+        return resp.choices[0].message.content.strip()
+    genai.configure(api_key=gemini_key)
+    model = genai.GenerativeModel('gemini-pro')
+    return (model.generate_content(prompt).text or '').strip()
+
+def _fetch_latest_drive_guide(kind=None, folder_id=None):
+    conn = get_db()
+    try:
+        if USE_POSTGRESQL:
+            if kind and folder_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, content_markdown, created_at
+                    FROM drive_guides
+                    WHERE kind = %s AND folder_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (kind, folder_id))
+            elif kind:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, content_markdown, created_at
+                    FROM drive_guides
+                    WHERE kind = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (kind,))
+            elif folder_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, content_markdown, created_at
+                    FROM drive_guides
+                    WHERE folder_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (folder_id,))
+            else:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, content_markdown, created_at
+                    FROM drive_guides
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''')
+            row = db_fetchone(cur)
+            cur.close()
+            conn.close()
+            return dict(row) if row else None
+        # SQLite
+        if kind and folder_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, content_markdown, created_at
+                FROM drive_guides
+                WHERE kind = ? AND folder_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (kind, folder_id))
+        elif kind:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, content_markdown, created_at
+                FROM drive_guides
+                WHERE kind = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (kind,))
+        elif folder_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, content_markdown, created_at
+                FROM drive_guides
+                WHERE folder_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (folder_id,))
+        else:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, kind, content_markdown, created_at
+                FROM drive_guides
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''')
+        row = db_fetchone(cur)
+        conn.close()
+        if not row:
+            return None
+        return {'id': row[0], 'folder_id': row[1], 'kind': row[2], 'content_markdown': row[3], 'created_at': row[4]}
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+def _ai_generate_ds_mid_guide(topic_inventory_lines):
+    """
+    Produce a mid-level DS interview review guide from an inventory of topics.
+    Returns markdown.
+    """
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    gemini_key = os.environ.get('GOOGLE_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    if not ((groq_key and Groq is not None) or (gemini_key and genai is not None)):
+        raise Exception('No AI API key configured (set GROQ_API_KEY or GOOGLE_API_KEY).')
+
+    inventory = "\n".join((topic_inventory_lines or [])[:220])
+    prompt = f"""
+You are writing a MID-LEVEL DATA SCIENCE interview study guide.
+Use the topic inventory (extracted from course PDFs + notebooks) as your source of truth.
+
+Output: ONE well-organized markdown document for quick review.
+
+Structure (must follow):
+
+# Mid-level Data Science Interview Review Guide
+## How to use this
+- <5 bullets: how to study, what to practice>
+
+## Statistics & Experimentation
+### <Subtopic>
+- <4-7 bullets: definition/intuition, key formulas, assumptions, common pitfall, when to use, how interviewers ask it>
+... (multiple subtopics)
+
+## SQL & Analytics
+...
+
+## Machine Learning (practical)
+...
+
+## Product & Metrics
+...
+
+## Case Study Playbook
+- <10-18 bullets: end-to-end checklist>
+
+Rules:
+- Keep bullets concise (no long paragraphs).
+- Prefer DS interview framing over course framing.
+- Include “common traps” explicitly inside bullets when relevant.
+- Don’t invent random topics not implied by the inventory; if something’s missing, skip it.
+- Write formulas using LaTeX with proper delimiters: use \\( ... \\) inline and $$ ... $$ for display.
+- Do NOT wrap formulas in plain parentheses like "( ... )" unless those parentheses are part of the LaTeX itself.
+
+Topic inventory:
+{inventory}
+""".strip()
+
+    if groq_key and Groq is not None:
+        client = Groq(api_key=groq_key)
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=2600
+        )
+        return resp.choices[0].message.content.strip()
+
+    genai.configure(api_key=gemini_key)
+    model = genai.GenerativeModel('gemini-pro')
+    return (model.generate_content(prompt).text or '').strip()
+
+@app.route('/api/drive/guide/latest', methods=['GET'])
+@drive_login_required
+def drive_guide_latest():
+    """Fetch the latest generated Drive guide."""
+    kind = (request.args.get('kind') or '').strip().lower() or None
+    folder_id = (request.args.get('folder_id') or '').strip() or None
+    guide = _fetch_latest_drive_guide(kind=kind, folder_id=folder_id)
+    if not guide:
+        return jsonify({'error': 'No guide generated yet'}), 404
+    return jsonify(guide)
+
+@app.route('/api/drive/guide/generate', methods=['POST'])
+@drive_login_required
+def drive_guide_generate():
+    """
+    Generate a concise master study guide from extracted topics.
+    Uses cached per-topic summaries when available; otherwise batches AI generation.
+    """
+    data = request.get_json(silent=True) or {}
+    kind = (data.get('kind') or 'concise').strip().lower()
+    if kind not in ('concise', 'ds_mid'):
+        return jsonify({'error': 'Unsupported kind'}), 400
+
+    max_topics = int(data.get('max_topics') or 160)
+    if max_topics < 20:
+        max_topics = 20
+    if max_topics > 400:
+        max_topics = 400
+
+    folder_id = (data.get('folder_id') or get_setting('drive_last_folder_id', '') or '').strip()
+    if not folder_id:
+        return jsonify({'error': 'folder_id is required (index a folder first)'}), 400
+
+    # Gather topics grouped by module from extracted files
+    conn = get_db()
+    rows = []
+    try:
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, '''
+                SELECT extracted_topics_json, path, name
+                FROM drive_files
+                WHERE extracted_topics_json IS NOT NULL AND folder_id = %s
+            ''', (folder_id,))
+            rows = db_fetchall(cur)
+            cur.close()
+        else:
+            cur = db_execute(conn, '''
+                SELECT extracted_topics_json, path, name
+                FROM drive_files
+                WHERE extracted_topics_json IS NOT NULL AND folder_id = ?
+            ''', (folder_id,))
+            rows = db_fetchall(cur)
+    finally:
+        conn.close()
+
+    module_topics = {}  # module -> {topic_key: {'title': str, 'count': int}}
+    for r in rows:
+        raw = dict(r).get('extracted_topics_json') if USE_POSTGRESQL else r[0]
+        path = dict(r).get('path') if USE_POSTGRESQL else r[1]
+        name = dict(r).get('name') if USE_POSTGRESQL else r[2]
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw)
+            topics = obj.get('topics') or []
+        except Exception:
+            topics = []
+        mod = _module_from_path(path) if path else _module_from_path(name)
+        bucket = module_topics.setdefault(mod, {})
+        for t in topics:
+            s = str(t or '').strip()
+            if not s or _is_noise_topic(s):
+                continue
+            k = _topic_key(s)
+            if not k:
+                continue
+            if k not in bucket:
+                bucket[k] = {'title': s, 'count': 0}
+            bucket[k]['count'] += 1
+
+    if not module_topics:
+        return jsonify({'error': 'No extracted topics found yet. Run Extract Topics first.'}), 400
+
+    # Order modules and topics
+    ordered_modules = sorted(module_topics.keys(), key=_module_sort_key)
+    module_payload = []
+    total_topics = 0
+    for mod in ordered_modules:
+        items = list(module_topics[mod].values())
+        items.sort(key=lambda x: (-int(x.get('count') or 0), str(x.get('title') or '')))
+        titles = [it['title'] for it in items][:60]
+        if not titles:
+            continue
+        module_payload.append((mod, titles))
+        total_topics += len(titles)
+        if total_topics >= max_topics:
+            break
+
+    if not module_payload:
+        return jsonify({'error': 'No usable topics found after filtering. Try extracting more files.'}), 400
+
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    if kind == 'ds_mid':
+        inv = []
+        for mod, topics in module_payload:
+            for t in topics[:40]:
+                k = _topic_key(t)
+                freq = 0
+                try:
+                    freq = int(module_topics.get(mod, {}).get(k, {}).get('count') or 0)
+                except Exception:
+                    freq = 0
+                inv.append(f"- [{mod}] {t}{f' ({freq}x)' if freq else ''}")
+        content = _ai_generate_ds_mid_guide(inv)
+    else:
+        # Build guide module-by-module (more coherent than a flat topic dump).
+        sections = []
+        toc_lines = []
+        for mod, topics in module_payload:
+            toc_lines.append(f"- {mod}")
+            for t in topics[:35]:
+                toc_lines.append(f"  - {t}")
+
+            cached_sections = []
+            missing = []
+            for t in topics[:35]:
+                cached = _get_drive_topic_summary(t)
+                if cached:
+                    cached_sections.append(re.sub(r'(?m)^##\\s+', '### ', cached.strip(), count=1))
+                else:
+                    missing.append(t)
+
+            module_md = _ai_concise_module_review(mod, missing[:18]) if missing else f"## {mod}\n### Module overview\n- (topics already summarized from cache)\n"
+
+            parts = re.split(r'(?m)^###\\s+', module_md.strip())
+            for p in parts:
+                if not p.strip():
+                    continue
+                sec = "### " + p.strip()
+                heading = sec.splitlines()[0].replace('###', '').strip()
+                if heading and heading.lower() not in ('module overview',):
+                    _set_drive_topic_summary(heading, re.sub(r'(?m)^###\\s+', '## ', sec, count=1))
+
+            if not module_md.lstrip().startswith(f"## {mod}"):
+                module_md = f"## {mod}\n" + module_md
+            sections.append(module_md.strip())
+            if cached_sections:
+                sections.append("\n".join(cached_sections).strip())
+
+        header = f"# Concise Course Review Guide (Drive)\n\nGenerated: {created_at}\n\n"
+        intro = "Concise, high-signal review notes to refresh core concepts quickly.\n\n"
+        toc = "## Table of contents\n" + "\n".join(toc_lines) + "\n\n"
+        content = header + intro + toc + "\n\n".join(sections).strip() + "\n"
+
+    # Store as latest guide row
+    conn = get_db()
+    try:
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, '''
+                INSERT INTO drive_guides (folder_id, kind, content_markdown, created_at)
+                VALUES (%s, %s, %s, %s)
+            ''', (folder_id, kind, content, created_at))
+            cur.close()
+        else:
+            db_execute(conn, '''
+                INSERT INTO drive_guides (folder_id, kind, content_markdown, created_at)
+                VALUES (?, ?, ?, ?)
+            ''', (folder_id, kind, content, created_at))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({'message': 'Guide generated', 'kind': kind, 'created_at': created_at, 'modules': len(module_payload)})
 
 @app.route('/favicon.ico')
 def favicon():
