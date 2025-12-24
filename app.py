@@ -289,6 +289,15 @@ def init_db():
         )
     ''')
 
+    # App settings (simple key/value store)
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TEXT
+        )
+    ''')
+
     # Global AI guidance cache (reusable across interviews)
     # Keys are normalized to maximize cache hits and avoid duplicate regeneration.
     cursor.execute(f'''
@@ -322,6 +331,48 @@ def init_db():
     
     conn.commit()
     cursor.close()
+    conn.close()
+
+def get_setting(key, default=None):
+    """Get a setting value from DB (string)."""
+    try:
+        conn = get_db()
+        if USE_POSTGRESQL:
+            cursor = db_execute(conn, 'SELECT value FROM app_settings WHERE key = %s LIMIT 1', (key,))
+            row = db_fetchone(cursor)
+            cursor.close()
+        else:
+            cursor = db_execute(conn, 'SELECT value FROM app_settings WHERE key = ? LIMIT 1', (key,))
+            row = db_fetchone(cursor)
+        conn.close()
+        if not row:
+            return default
+        return dict(row).get('value') if USE_POSTGRESQL else row[0]
+    except Exception:
+        return default
+
+def set_setting(key, value):
+    """Upsert a setting value into DB."""
+    conn = get_db()
+    updated_at = datetime.utcnow().isoformat()
+    if USE_POSTGRESQL:
+        cursor = db_execute(conn, '''
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key) DO UPDATE SET
+                value = EXCLUDED.value,
+                updated_at = EXCLUDED.updated_at
+        ''', (key, str(value), updated_at))
+        cursor.close()
+    else:
+        db_execute(conn, '''
+            INSERT INTO app_settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+        ''', (key, str(value), updated_at))
+    conn.commit()
     conn.close()
 
 def _normalize_cache_key(value):
@@ -499,6 +550,76 @@ def _upsert_cached_study_notes(position, topic_name, topic_path, notes_markdown,
 
     conn.commit()
     conn.close()
+
+def _hydrate_topic_ai_from_cache(conn, topic_id, position, topic_name, category_name):
+    """
+    If we have cached AI guidance/notes (global caches), populate the newly-created topic row.
+    This makes recreated interviews immediately show previously-generated material without re-generation.
+    """
+    try:
+        parent_path_raw = category_name.strip() if isinstance(category_name, str) and category_name.strip() else None
+        topic_path_key_source = f"{parent_path_raw} > {topic_name}" if parent_path_raw else (topic_name or '')
+
+        position_key = _normalize_cache_key(position)
+        topic_key = _normalize_cache_key(topic_name)
+        topic_path_key = _normalize_cache_key(topic_path_key_source)
+
+        cached_guidance = None
+        cached_notes = None
+
+        # Guidance cache
+        try:
+            cur = db_execute(conn, '''
+                SELECT ai_guidance
+                FROM ai_guidance_cache
+                WHERE position_key = ? AND topic_key = ? AND topic_path_key = ?
+                LIMIT 1
+            ''', (position_key, topic_key, topic_path_key))
+            row = db_fetchone(cur)
+            if USE_POSTGRESQL:
+                cur.close()
+            if row:
+                cached_guidance = dict(row).get('ai_guidance') if USE_POSTGRESQL else row[0] if isinstance(row, tuple) else dict(row).get('ai_guidance')
+        except Exception:
+            # Cache table may not exist yet or query may fail; ignore.
+            cached_guidance = None
+
+        # Notes cache
+        try:
+            cur = db_execute(conn, '''
+                SELECT notes_markdown
+                FROM study_notes_cache
+                WHERE position_key = ? AND topic_key = ? AND topic_path_key = ?
+                LIMIT 1
+            ''', (position_key, topic_key, topic_path_key))
+            row = db_fetchone(cur)
+            if USE_POSTGRESQL:
+                cur.close()
+            if row:
+                cached_notes = dict(row).get('notes_markdown') if USE_POSTGRESQL else row[0] if isinstance(row, tuple) else dict(row).get('notes_markdown')
+        except Exception:
+            cached_notes = None
+
+        if cached_guidance or cached_notes:
+            # Update the topic row; only set fields that are present.
+            if USE_POSTGRESQL:
+                cur = db_execute(conn, '''
+                    UPDATE topics
+                    SET ai_guidance = COALESCE(%s, ai_guidance),
+                        ai_notes   = COALESCE(%s, ai_notes)
+                    WHERE id = %s
+                ''', (cached_guidance, cached_notes, topic_id))
+                cur.close()
+            else:
+                db_execute(conn, '''
+                    UPDATE topics
+                    SET ai_guidance = COALESCE(?, ai_guidance),
+                        ai_notes   = COALESCE(?, ai_notes)
+                    WHERE id = ?
+                ''', (cached_guidance, cached_notes, topic_id))
+    except Exception:
+        # Best-effort only
+        return
 
 @app.route('/')
 def index():
@@ -697,6 +818,32 @@ def save_topics_config():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/admin/settings', methods=['GET'])
+@login_required
+def get_admin_settings():
+    """Get admin-editable settings."""
+    # Defaults
+    flashcards_count = int(get_setting('flashcards_count', '15') or 15)
+    return jsonify({
+        'flashcards_count': flashcards_count
+    })
+
+@app.route('/api/admin/settings', methods=['POST'])
+@login_required
+def update_admin_settings():
+    """Update admin-editable settings."""
+    data = request.get_json(silent=True) or {}
+    if 'flashcards_count' in data:
+        try:
+            val = int(data.get('flashcards_count'))
+            # Keep it sane
+            if val < 5 or val > 40:
+                return jsonify({'error': 'flashcards_count must be between 5 and 40'}), 400
+            set_setting('flashcards_count', str(val))
+        except Exception:
+            return jsonify({'error': 'flashcards_count must be an integer'}), 400
+    return jsonify({'message': 'Settings saved'})
+
 @app.route('/api/debug/check-key', methods=['GET'])
 def check_api_key():
     """Debug endpoint to check if API key is accessible"""
@@ -877,9 +1024,11 @@ def add_topic(interview_id):
         conn.close()
         return jsonify({'error': 'Study material not found'}), 404
     
+    position = dict(interview).get('position', 'Data Scientist')
+
     # If topic name is blank, generate common topics for the position
     if not topic_name:
-        topics = generate_common_topics(dict(interview).get('position', 'Data Scientist'))
+        topics = generate_common_topics(position)
         topic_ids = []
         for topic in topics:
             if USE_POSTGRESQL:
@@ -890,7 +1039,10 @@ def add_topic(interview_id):
                 ''', (interview_id, topic['name'], topic.get('category', None), 
                       topic.get('priority', 'medium'), topic.get('notes', '')))
                 result = db_fetchone(cursor)
-                topic_ids.append(result['id'] if result else None)
+                new_id = result['id'] if result else None
+                topic_ids.append(new_id)
+                if new_id:
+                    _hydrate_topic_ai_from_cache(conn, new_id, position, topic['name'], topic.get('category', None))
                 cursor.close()
             else:
                 cursor = db_execute(conn, '''
@@ -898,7 +1050,10 @@ def add_topic(interview_id):
                     VALUES (?, ?, ?, ?, ?)
                 ''', (interview_id, topic['name'], topic.get('category', None), 
                       topic.get('priority', 'medium'), topic.get('notes', '')))
-                topic_ids.append(db_lastrowid(cursor, conn))
+                new_id = db_lastrowid(cursor, conn)
+                topic_ids.append(new_id)
+                if new_id:
+                    _hydrate_topic_ai_from_cache(conn, new_id, position, topic['name'], topic.get('category', None))
         conn.commit()
         conn.close()
         return jsonify({'ids': topic_ids, 'topics': topics, 'message': f'{len(topics)} common topics added successfully'}), 201
@@ -913,6 +1068,8 @@ def add_topic(interview_id):
               data.get('notes', '')))
         result = db_fetchone(cursor)
         topic_id = result['id'] if result else None
+        if topic_id:
+            _hydrate_topic_ai_from_cache(conn, topic_id, position, topic_name, data.get('category_name'))
         cursor.close()
     else:
         cursor = db_execute(conn, '''
@@ -921,6 +1078,8 @@ def add_topic(interview_id):
         ''', (interview_id, topic_name, data.get('category_name'), data.get('priority', 'medium'), 
               data.get('notes', '')))
         topic_id = db_lastrowid(cursor, conn)
+        if topic_id:
+            _hydrate_topic_ai_from_cache(conn, topic_id, position, topic_name, data.get('category_name'))
     conn.commit()
     conn.close()
     return jsonify({'id': topic_id, 'message': 'Topic added successfully'}), 201
@@ -996,8 +1155,10 @@ def refresh_topics(interview_id):
     if USE_POSTGRESQL:
         cursor.close()
     
+    position = dict(interview).get('position', 'Data Scientist')
+
     # Generate new topics from topics.json
-    topics = generate_common_topics(dict(interview).get('position', 'Data Scientist'))
+    topics = generate_common_topics(position)
     topic_ids = []
     for topic in topics:
         if USE_POSTGRESQL:
@@ -1008,7 +1169,10 @@ def refresh_topics(interview_id):
             ''', (interview_id, topic['name'], topic.get('category', None), 
                   topic.get('priority', 'medium'), topic.get('notes', '')))
             result = db_fetchone(cursor)
-            topic_ids.append(result['id'] if result else None)
+            new_id = result['id'] if result else None
+            topic_ids.append(new_id)
+            if new_id:
+                _hydrate_topic_ai_from_cache(conn, new_id, position, topic['name'], topic.get('category', None))
             cursor.close()
         else:
             cursor = db_execute(conn, '''
@@ -1016,7 +1180,10 @@ def refresh_topics(interview_id):
                 VALUES (?, ?, ?, ?, ?)
             ''', (interview_id, topic['name'], topic.get('category', None), 
                   topic.get('priority', 'medium'), topic.get('notes', '')))
-            topic_ids.append(db_lastrowid(cursor, conn))
+            new_id = db_lastrowid(cursor, conn)
+            topic_ids.append(new_id)
+            if new_id:
+                _hydrate_topic_ai_from_cache(conn, new_id, position, topic['name'], topic.get('category', None))
     
     conn.commit()
     conn.close()
@@ -1236,6 +1403,12 @@ def generate_study_notes(topic_id):
     parent_path_display = parent_path_raw.replace(' > ', ' → ') if parent_path_raw else None
     full_topic_path = f"{parent_path_display} → {topic_name}" if parent_path_display else topic_name
 
+    # Admin-tunable: number of flashcards to generate
+    try:
+        flashcards_count = int(get_setting('flashcards_count', '15') or 15)
+    except Exception:
+        flashcards_count = 15
+
     prompt = f"""You are an expert interview preparation coach specializing in Data Scientist interviews.
 
 You are compiling STUDY NOTES for one topic. The notes must be concise, structured, and easy to review quickly.
@@ -1252,6 +1425,7 @@ Write study notes in Markdown with these sections (use these exact headings):
 ## Summary (5 bullets max)
 ## Key concepts
 ## Common interview questions (with brief answers)
+## Flashcards (Q/A)
 ## Pitfalls & gotchas
 ## Mini cheat-sheet (syntax / patterns)
 ## Practice (3 tasks: easy/medium/hard)
@@ -1259,6 +1433,11 @@ Write study notes in Markdown with these sections (use these exact headings):
 Rules:
 - Tailor to Data Scientist expectations (pandas/pyarrow examples ok; Spark only if relevant).
 - Avoid fluff. Prefer concrete examples and decision tradeoffs.
+- In **Flashcards (Q/A)**, produce {flashcards_count} cards ordered from EASY → HARD. Use bullets in exactly this format:
+  - Q: ...
+    A: ...
+-    Difficulty: Easy|Medium|Hard
+- Every card MUST include an answer (no blank A lines). If the question is ambiguous, write the most likely concise interview-style answer and note assumptions in 1 sentence.
 - If the input guidance is missing something critical, infer reasonable details but keep it brief."""
 
     # Prefer Groq, then Gemini (similar to guidance)

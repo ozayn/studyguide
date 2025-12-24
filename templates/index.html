@@ -595,6 +595,78 @@
             .modal-title {
                 font-size: 1rem;
             }
+
+            /* Make modal header/toggles wrap nicely on small screens */
+            .modal-header {
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .modal-view-toggle {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            .modal-view-toggle .btn-mini {
+                min-height: 36px;
+            }
+
+            /* Practice mode: stack controls, bigger tap targets */
+            .flashcards-practice-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 6px;
+            }
+
+            .flashcards-mode-toggle {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            .practice-card {
+                padding: 14px;
+                min-height: 200px;
+            }
+
+            .practice-card .practice-content {
+                font-size: 1rem;
+            }
+
+            .practice-controls {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+
+            .practice-controls .left,
+            .practice-controls .right {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            .practice-controls .left .btn,
+            .practice-controls .right .btn {
+                flex: 1;
+            }
+
+            /* Grid cards: single column + easier copy */
+            .flashcards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .flashcard {
+                min-height: 120px;
+            }
+
+            .flashcard-copy {
+                top: 8px;
+                right: 8px;
+            }
+
+            /* Code blocks: prevent horizontal overflow from feeling "stuck" */
+            .ai-guidance pre.ai-code-block {
+                max-width: 100%;
+            }
         }
 
         @keyframes modalSlideIn {
@@ -621,6 +693,26 @@
             font-size: 1.25rem;
             font-weight: 600;
             color: var(--text);
+        }
+
+        .modal-view-toggle {
+            margin-top: 8px;
+            display: inline-flex;
+            gap: 8px;
+        }
+
+        .modal-view-toggle .btn-mini {
+            padding: 4px 10px;
+            font-size: 0.72rem;
+            border: 1px solid var(--border);
+            color: var(--text-light);
+            background: transparent;
+        }
+
+        .modal-view-toggle .btn-mini.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(255, 56, 92, 0.06);
         }
 
         .modal-close {
@@ -808,6 +900,157 @@
             border: 1px solid var(--border);
             padding: 1px 6px;
             border-radius: 6px;
+        }
+
+        /* Flashcards view */
+        .flashcards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .flashcard {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+            cursor: pointer;
+            transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+            min-height: 140px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            user-select: text;
+            -webkit-user-select: text;
+            position: relative;
+        }
+
+        .flashcard:hover {
+            transform: translateY(-1px);
+            border-color: rgba(255, 56, 92, 0.35);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.06);
+        }
+
+        .flashcard .flashcard-side-label {
+            font-size: 0.7rem;
+            color: var(--text-light);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .flashcard .flashcard-content {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: var(--text);
+            word-break: break-word;
+        }
+
+        .flashcard.is-back .flashcard-side-label {
+            color: var(--accent);
+        }
+
+        .flashcard-copy {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 4px 8px;
+            font-size: 0.72rem;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: rgba(255,255,255,0.7);
+            color: var(--text-light);
+            cursor: pointer;
+        }
+
+        .flashcard-copy:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .flashcards-empty {
+            padding: 14px;
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+            color: var(--text-light);
+        }
+
+        /* Practice (presentation) mode */
+        .flashcards-mode-toggle {
+            margin-top: 10px;
+            display: inline-flex;
+            gap: 8px;
+        }
+
+        .flashcards-mode-toggle .btn-mini {
+            padding: 4px 10px;
+            font-size: 0.72rem;
+            border: 1px solid var(--border);
+            color: var(--text-light);
+            background: transparent;
+        }
+
+        .flashcards-mode-toggle .btn-mini.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(255, 56, 92, 0.06);
+        }
+
+        .flashcards-practice {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .flashcards-practice-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-light);
+            font-size: 0.8rem;
+        }
+
+        .practice-card {
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 18px;
+            min-height: 220px;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .practice-card .practice-side {
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-light);
+        }
+
+        .practice-card .practice-content {
+            font-size: 1.05rem;
+            line-height: 1.55;
+            color: var(--text);
+            word-break: break-word;
+        }
+
+        .practice-controls {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .practice-controls .left,
+        .practice-controls .right {
+            display: inline-flex;
+            gap: 8px;
+            align-items: center;
         }
 
         .topic-name {
@@ -1239,7 +1482,8 @@
                 padding: 16px 12px;
             }
 
-            .btn {
+            /* Full-width primary buttons on very small screens (but keep mini action buttons compact) */
+            .btn:not(.btn-mini) {
                 width: 100%;
                 padding: 14px 20px;
             }
@@ -1255,6 +1499,12 @@
             .topic-actions .btn-mini {
                 flex: 1;
                 min-width: 0;
+                padding: 8px 10px;
+                font-size: 0.75rem;
+                line-height: 1.1;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
         }
     </style>
@@ -1351,6 +1601,12 @@
                         </button>
                         <button class="btn btn-secondary" onclick="exportChecklistToPDF()" id="export-pdf-btn" style="font-size: 0.75rem; padding: 4px 12px; background: #f5f5f5; color: #888; border: 1px solid #e0e0e0; font-weight: 400; display: none;">
                             Export PDF
+                        </button>
+                        <button class="btn btn-secondary" onclick="exportStudyToPDF()" id="export-study-pdf-btn" style="font-size: 0.75rem; padding: 4px 12px; background: #f5f5f5; color: #888; border: 1px solid #e0e0e0; font-weight: 400;">
+                            Export Study PDF
+                        </button>
+                        <button class="btn btn-secondary" onclick="exportCardsToPDF()" id="export-cards-pdf-btn" style="font-size: 0.75rem; padding: 4px 12px; background: #f5f5f5; color: #888; border: 1px solid #e0e0e0; font-weight: 400;">
+                            Export Cards PDF
                         </button>
                         <button class="btn btn-secondary" onclick="refreshTopicsFromJson()" style="font-size: 0.75rem; padding: 4px 12px; background: #f5f5f5; color: #888; border: 1px solid #e0e0e0; font-weight: 400;">
                             Refresh
@@ -1471,6 +1727,12 @@
                     continue;
                 }
 
+                // Ignore orphan list markers / numbering that the model sometimes emits
+                // Examples: "-", "*", "+", "•", "1."
+                if (/^[-*+•]$/.test(trimmed) || /^\d+\.$/.test(trimmed)) {
+                    continue;
+                }
+
                 // Markdown headings (Setext style):
                 // Title
                 // =====
@@ -1508,6 +1770,8 @@
                     itemText = itemText.replace(/<\/strong>:\s*/g, '</strong> ');
                     // Remove leading colon if present
                     itemText = itemText.replace(/^:\s*/, '').trim();
+                    // If the item becomes empty after cleanup, ignore it
+                    if (!itemText) continue;
                     html += `<li>${itemText}</li>`;
                 } else {
                     // Not a list item - close list if open
@@ -1516,6 +1780,8 @@
                     let paraText = line.trim().replace(/<\/strong>:\s*/g, '</strong> ');
                     // Remove leading colon if present
                     paraText = paraText.replace(/^:\s*/, '').trim();
+                    // Ignore empty paragraphs and stray bullet glyphs
+                    if (!paraText || /^[-*+•]$/.test(paraText) || /^\d+\.$/.test(paraText)) continue;
                     html += `<p>${paraText}</p>`;
                 }
             }
@@ -1533,6 +1799,658 @@
                 });
 
             return finalHtml;
+        }
+
+        // ---- Study material modal: Notes vs Cards ----
+        let modalMaterial = { kind: 'text', title: '', text: '', topicId: null }; // kind: guidance|notes|other
+        let modalViewMode = localStorage.getItem('studyMaterialViewMode') || 'notes'; // notes|cards
+        let flashcardsOpenMode = localStorage.getItem('flashcardsOpenMode') || 'practice'; // grid|practice
+        let flashcardsPracticeState = { cards: [], idx: 0, side: 'front' }; // side: front|back
+
+        function _normalizeStudyMaterialTitle(title, kind) {
+            const raw = (title || '').trim();
+            // Strip any existing trailing "— Notes"/"— Guidance" so we can re-apply cleanly.
+            const base = raw
+                .replace(/\s+—\s+Notes\s*$/i, '')
+                .replace(/\s+—\s+Guidance\s*$/i, '')
+                .trim();
+            if (kind === 'notes') return base ? `${base} — Notes` : 'Notes';
+            if (kind === 'guidance') return base || 'Guidance';
+            return base || (title || 'Study Material');
+        }
+
+        function openStudyMaterialModal({ title, kind, text, topicId = null, defaultView = 'notes' }) {
+            const modal = document.getElementById('guidance-modal');
+            const modalTitle = document.getElementById('modal-title');
+
+            modalMaterial = { kind, title, text: text || '', topicId };
+            modalTitle.textContent = _normalizeStudyMaterialTitle(title, kind);
+
+            const toggle = document.getElementById('modal-view-toggle');
+            const btnNotes = document.getElementById('modal-view-notes');
+            const btnCards = document.getElementById('modal-view-cards');
+
+            // Only show toggle for AI material (guidance/notes)
+            const showToggle = (kind === 'guidance' || kind === 'notes');
+            toggle.style.display = showToggle ? 'inline-flex' : 'none';
+
+            // Use stored preference if available, otherwise default
+            modalViewMode = (showToggle ? (modalViewMode || defaultView) : 'notes');
+            setModalView(modalViewMode);
+
+            // Wire buttons
+            btnNotes.onclick = () => setModalView('notes');
+            btnCards.onclick = () => setModalView('cards');
+
+            modal.classList.add('active');
+        }
+
+        function setModalView(mode) {
+            const contentEl = document.getElementById('modal-guidance-content');
+            const btnNotes = document.getElementById('modal-view-notes');
+            const btnCards = document.getElementById('modal-view-cards');
+
+            modalViewMode = mode;
+            localStorage.setItem('studyMaterialViewMode', mode);
+
+            btnNotes.classList.toggle('active', mode === 'notes');
+            btnCards.classList.toggle('active', mode === 'cards');
+
+            if (mode === 'cards') {
+                const cards = extractFlashcards(modalMaterial.text || '');
+                contentEl.innerHTML = renderCardsContainer(cards);
+                return;
+            }
+            // Notes view: hide the flashcards section (we still keep it in the raw text for Cards view)
+            const displayText = (modalMaterial.kind === 'notes')
+                ? stripFlashcardsSection(modalMaterial.text || '')
+                : (modalMaterial.text || '');
+            contentEl.innerHTML = formatAIGuidance(displayText);
+        }
+
+        function renderCardsContainer(cards) {
+            const modeToggle = `
+                <div class="flashcards-mode-toggle">
+                    <button class="btn btn-ghost btn-mini ${flashcardsOpenMode === 'practice' ? 'active' : ''}" type="button" onclick="setFlashcardsMode('practice')">Practice</button>
+                    <button class="btn btn-ghost btn-mini ${flashcardsOpenMode === 'grid' ? 'active' : ''}" type="button" onclick="setFlashcardsMode('grid')">Grid</button>
+                </div>
+            `;
+
+            if (flashcardsOpenMode === 'practice') {
+                return `${modeToggle}${renderFlashcardsPractice(cards)}`;
+            }
+            return `${modeToggle}${renderFlashcards(cards)}`;
+        }
+
+        function setFlashcardsMode(mode) {
+            flashcardsOpenMode = mode;
+            localStorage.setItem('flashcardsOpenMode', mode);
+            // Re-render current Cards view
+            if (modalViewMode === 'cards') {
+                setModalView('cards');
+            }
+        }
+
+        function renderFlashcardsPractice(cards) {
+            if (!cards || cards.length === 0) {
+                return renderFlashcards(cards); // will show empty state with buttons
+            }
+            // Initialize state if needed
+            if (!flashcardsPracticeState.cards || flashcardsPracticeState.cards.length === 0) {
+                flashcardsPracticeState = { cards, idx: 0, side: 'front' };
+            } else {
+                // If cards list changed, reset
+                if (flashcardsPracticeState.cards.length !== cards.length) {
+                    flashcardsPracticeState = { cards, idx: 0, side: 'front' };
+                } else {
+                    flashcardsPracticeState.cards = cards;
+                }
+            }
+            const idx = Math.min(Math.max(flashcardsPracticeState.idx, 0), cards.length - 1);
+            flashcardsPracticeState.idx = idx;
+            const card = cards[idx];
+            const side = flashcardsPracticeState.side;
+
+            const front = (card.front || '').trim();
+            const back = (card.back || '').trim() || '(no answer yet)';
+
+            const content = side === 'front' ? front : back;
+            const sideLabel = side === 'front' ? 'Front' : 'Back';
+
+            const renderSide = (s) => (s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+
+            return `
+                <div class="flashcards-practice">
+                    <div class="flashcards-practice-header">
+                        <div>${idx + 1} / ${cards.length}</div>
+                        <div>Shortcuts: ←/→ next/prev, Space flip</div>
+                    </div>
+
+                    <div class="practice-card" onclick="practiceFlip()" title="Click to flip (Space)">
+                        <button class="flashcard-copy" type="button" onclick="practiceCopy(event)">Copy</button>
+                        <div class="practice-side">${sideLabel}</div>
+                        <div class="practice-content">${renderSide(content)}</div>
+                    </div>
+
+                    <div class="practice-controls">
+                        <div class="left">
+                            <button class="btn btn-secondary" type="button" onclick="practicePrev()">← Prev</button>
+                            <button class="btn btn-secondary" type="button" onclick="practiceNext()">Next →</button>
+                        </div>
+                        <div class="right">
+                            <button class="btn" type="button" onclick="practiceFlip()">Flip</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function practicePrev() {
+            if (!flashcardsPracticeState.cards || flashcardsPracticeState.cards.length === 0) return;
+            flashcardsPracticeState.idx = (flashcardsPracticeState.idx - 1 + flashcardsPracticeState.cards.length) % flashcardsPracticeState.cards.length;
+            flashcardsPracticeState.side = 'front';
+            setModalView('cards');
+        }
+
+        function practiceNext() {
+            if (!flashcardsPracticeState.cards || flashcardsPracticeState.cards.length === 0) return;
+            flashcardsPracticeState.idx = (flashcardsPracticeState.idx + 1) % flashcardsPracticeState.cards.length;
+            flashcardsPracticeState.side = 'front';
+            setModalView('cards');
+        }
+
+        function practiceFlip() {
+            if (!flashcardsPracticeState.cards || flashcardsPracticeState.cards.length === 0) return;
+            flashcardsPracticeState.side = (flashcardsPracticeState.side === 'front') ? 'back' : 'front';
+            setModalView('cards');
+        }
+
+        async function practiceCopy(event) {
+            if (event) event.stopPropagation();
+            const cards = flashcardsPracticeState.cards || [];
+            if (!cards.length) return;
+            const card = cards[flashcardsPracticeState.idx] || {};
+            const text = (flashcardsPracticeState.side === 'front' ? card.front : card.back) || '';
+            const value = String(text || '').trim();
+            if (!value) return;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(value);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = value;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.remove();
+                }
+            } catch (e) {
+                alert('Copy failed');
+            }
+        }
+
+        // Keyboard shortcuts for practice mode
+        document.addEventListener('keydown', function(event) {
+            const modal = document.getElementById('guidance-modal');
+            if (!modal || !modal.classList.contains('active')) return;
+            if (modalViewMode !== 'cards') return;
+            if (flashcardsOpenMode !== 'practice') return;
+            const tag = (event.target && event.target.tagName) ? event.target.tagName.toLowerCase() : '';
+            if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+            if (event.key === 'ArrowRight') {
+                event.preventDefault();
+                practiceNext();
+            } else if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                practicePrev();
+            } else if (event.key === ' ' || event.key === 'Enter') {
+                event.preventDefault();
+                practiceFlip();
+            }
+        });
+
+        function stripFlashcardsSection(text) {
+            if (!text) return '';
+            const lines = text.split('\n');
+            const out = [];
+            let skipping = false;
+            let flashHeadingLevel = null;
+
+            const isHeadingLine = (l) => /^#{1,6}\s+\S/.test(l.trim());
+            const headingLevel = (l) => {
+                const m = l.trim().match(/^(#{1,6})\s+/);
+                return m ? m[1].length : null;
+            };
+            const isFlashcardsHeading = (l) => {
+                const t = l.trim();
+                // Accept "## Flashcards (Q/A)" and variants
+                if (/^#{1,6}\s*flashcards\b/i.test(t)) return true;
+                if (/^flashcards\s*\(q\/a\)/i.test(t)) return true;
+                if (/^flashcards\b/i.test(t) && /q\/a/i.test(t)) return true;
+                return false;
+            };
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmed = line.trim();
+
+                if (!skipping && isFlashcardsHeading(line)) {
+                    skipping = true;
+                    flashHeadingLevel = headingLevel(line);
+                    continue;
+                }
+
+                if (skipping) {
+                    // Stop skipping when we hit the next heading (same or higher level if we know it)
+                    if (isHeadingLine(line)) {
+                        const lvl = headingLevel(line);
+                        if (!flashHeadingLevel || (lvl && lvl <= flashHeadingLevel)) {
+                            skipping = false;
+                            flashHeadingLevel = null;
+                            out.push(line);
+                        }
+                    }
+                    continue;
+                }
+
+                out.push(line);
+            }
+
+            // Trim trailing whitespace/blank lines
+            while (out.length && !out[out.length - 1].trim()) out.pop();
+            return out.join('\n');
+        }
+
+        function extractFlashcards(text) {
+            // Heuristic extraction:
+            // - Prefer "Common interview questions" section from notes
+            // - Also use "Key concepts" bullets that look like "Term: definition"
+            const lines = (text || '').split('\n');
+            const cards = [];
+            let section = '';
+
+            const normalize = (s) => (s || '').trim();
+            const pushCard = (front, back, difficulty = null, sourceOrder = null) => {
+                const f = normalize(front);
+                const b = normalize(back);
+                if (!f) return;
+                cards.push({ front: f, back: b, difficulty, sourceOrder });
+            };
+
+            // First pass: harvest any explicit Q/A pairs anywhere (works even for older notes)
+            for (let i = 0; i < lines.length; i++) {
+                const line = (lines[i] || '').trim();
+                if (!line) continue;
+                const q = line.match(/^\s*(?:[-*+]\s*)?Q:\s*(.+)$/i);
+                if (!q) continue;
+                const question = q[1].trim();
+                let answer = '';
+                let difficulty = null;
+                for (let j = 1; j <= 4 && (i + j) < lines.length; j++) {
+                    const next = (lines[i + j] || '').trim();
+                    if (!next) continue;
+                    if (/^\s*(?:[-*+]\s*)?Q:\s*/i.test(next) || /^#{1,6}\s+/.test(next)) break;
+                    const a = next.match(/^\s*(?:[-*+]\s*)?A:\s*(.+)$/i);
+                    if (a) {
+                        answer = a[1].trim();
+                        i += j;
+                        break;
+                    }
+                }
+                // Look ahead for Difficulty line
+                for (let j = 1; j <= 5 && (i + j) < lines.length; j++) {
+                    const next = (lines[i + j] || '').trim();
+                    const d = next.match(/^\s*(?:[-*+]\s*)?Difficulty:\s*(Easy|Medium|Hard)\b/i);
+                    if (d) {
+                        difficulty = d[1].toLowerCase();
+                        break;
+                    }
+                    if (/^\s*(?:[-*+]\s*)?Q:\s*/i.test(next) || /^#{1,6}\s+/.test(next)) break;
+                }
+                pushCard(question, answer, difficulty, cards.length);
+            }
+
+            for (let i = 0; i < lines.length; i++) {
+                const raw = lines[i];
+                const line = raw.trim();
+                if (!line) continue;
+
+                // Section detection (notes may use ## or ### etc.)
+                const h = line.match(/^#{1,6}\s+(.+)$/);
+                if (h) {
+                    section = h[1].toLowerCase();
+                    continue;
+                }
+
+                // Only look at bullets within key sections
+                const inQuestions = section.includes('common interview questions');
+                const inFlashcards = section.includes('flashcards');
+                const inConcepts = section === 'key concepts' || section.includes('key concepts');
+                const inCheat = section.includes('cheat-sheet');
+                const inInterviewFocus = section.includes('interview focus');
+
+                // If content isn't in a structured notes section, still attempt basic extraction (guidance often is)
+                const allowLoose = (!section);
+                if (!(inFlashcards || inQuestions || inConcepts || inCheat || inInterviewFocus || allowLoose)) continue;
+                // Bullet lines (used by multiple sections)
+                const bullet = line.match(/^[-*+]\s+(.*)$/);
+                const item = bullet ? bullet[1].trim() : null;
+
+                if (inFlashcards) {
+                    // Expect:
+                    // - Q: ...
+                    //   A: ...
+                    // May be bullets or plain lines
+                    const q = line.match(/^\s*(?:[-*+]\s*)?Q:\s*(.+)$/i);
+                    if (q) {
+                        const question = q[1].trim();
+                        // Look ahead for A:
+                        let answer = '';
+                        let difficulty = null;
+                        for (let j = 1; j <= 4 && (i + j) < lines.length; j++) {
+                            const next = lines[i + j].trim();
+                            // Stop if we hit another question or a new heading
+                            if (/^\s*(?:[-*+]\s*)?Q:\s*/i.test(next) || /^#{1,6}\s+/.test(next)) break;
+                            const a = next.match(/^\s*(?:[-*+]\s*)?A:\s*(.+)$/i);
+                            if (a) {
+                                answer = a[1].trim();
+                                i += j; // consume through answer line
+                                break;
+                            }
+                        }
+                        // Fallback: if no explicit A: line, use the next non-empty line as a short answer
+                        if (!answer) {
+                            for (let j = 1; j <= 2 && (i + j) < lines.length; j++) {
+                                const next = lines[i + j].trim();
+                                if (!next) continue;
+                                if (/^\s*(?:[-*+]\s*)?Q:\s*/i.test(next) || /^#{1,6}\s+/.test(next)) break;
+                                const cleaned = next.replace(/^\s*[-*+]\s+/, '').replace(/^A:\s*/i, '').trim();
+                                if (cleaned) {
+                                    answer = cleaned;
+                                    break;
+                                }
+                            }
+                        }
+                        // Difficulty line may follow
+                        for (let j = 1; j <= 4 && (i + j) < lines.length; j++) {
+                            const next = lines[i + j].trim();
+                            if (!next) continue;
+                            const d = next.match(/^\s*(?:[-*+]\s*)?Difficulty:\s*(Easy|Medium|Hard)\b/i);
+                            if (d) {
+                                difficulty = d[1].toLowerCase();
+                                i += j;
+                                break;
+                            }
+                            if (/^\s*(?:[-*+]\s*)?Q:\s*/i.test(next) || /^#{1,6}\s+/.test(next)) break;
+                        }
+                        pushCard(question, answer, difficulty, cards.length);
+                        continue;
+                    }
+                    const aOnly = line.match(/^\s*(?:[-*+]\s*)?A:\s*(.+)$/i);
+                    if (aOnly) {
+                        // ignore stray answers
+                        continue;
+                    }
+                    // fallback: treat bullet as front-only
+                    if (item) pushCard(item, '');
+                    continue;
+                }
+
+                if (inQuestions) {
+                    // Try split "Q? — A" or "Q?: A" or "Q? - A"
+                    if (!item) continue;
+                    const dashSplit = item.split(/\s+[—-]\s+/);
+                    if (dashSplit.length >= 2) {
+                        pushCard(dashSplit[0], dashSplit.slice(1).join(' — '));
+                        continue;
+                    }
+                    const colonIdx = item.indexOf(':');
+                    if (colonIdx > 0 && item.slice(0, colonIdx).includes('?')) {
+                        pushCard(item.slice(0, colonIdx), item.slice(colonIdx + 1));
+                        continue;
+                    }
+                    // If looks like a question, make back blank (flip will show "No answer yet")
+                    if (item.includes('?')) {
+                        pushCard(item, '');
+                        continue;
+                    }
+                    pushCard(item, '');
+                    continue;
+                }
+
+                if (inConcepts) {
+                    if (!item) continue;
+                    // Term: definition
+                    const idx = item.indexOf(':');
+                    if (idx > 0) {
+                        pushCard(item.slice(0, idx), item.slice(idx + 1));
+                        continue;
+                    }
+                    // **Term** - definition
+                    const m = item.match(/^<strong>(.+?)<\/strong>\s+(.*)$/) || item.match(/^\*\*(.+?)\*\*\s+(.*)$/);
+                    if (m) {
+                        pushCard(m[1], m[2]);
+                        continue;
+                    }
+                    pushCard(item, '');
+                    continue;
+                }
+
+                if (inCheat) {
+                    if (!item) continue;
+                    // Anything in cheat-sheet is useful as a front-only card
+                    pushCard(item, '');
+                    continue;
+                }
+
+                if (inInterviewFocus) {
+                    if (!item) continue;
+                    // Often bullets describe "what they test" -> make them prompts
+                    pushCard(`Interview focus: ${item.replace(/<\/?strong>/g, '')}`, '');
+                    continue;
+                }
+
+                if (allowLoose) {
+                    // Guidance mode: look for bullets, or lines that look like Q/A
+                    if (item) {
+                        const dashSplit = item.split(/\s+[—-]\s+/);
+                        if (dashSplit.length >= 2) {
+                            pushCard(dashSplit[0], dashSplit.slice(1).join(' — '));
+                            continue;
+                        }
+                        const idx = item.indexOf(':');
+                        if (idx > 0 && idx < 60) {
+                            pushCard(item.slice(0, idx), item.slice(idx + 1));
+                            continue;
+                        }
+                        pushCard(item, '');
+                        continue;
+                    }
+                    // Non-bullet question lines
+                    if (line.includes('?')) {
+                        pushCard(line, '');
+                        continue;
+                    }
+                }
+            }
+
+            // Cap to keep it study-friendly
+            const difficultyRank = (d) => (d === 'easy' ? 0 : d === 'medium' ? 1 : d === 'hard' ? 2 : 3);
+            const scoreHeuristic = (c) => {
+                // Lower score => easier
+                const q = (c.front || '');
+                let score = 0;
+                score += Math.min(60, q.length) / 20;
+                if (/\bwhy\b|\btrade-?off\b|\bedge case\b|\boptimi|complexity|distributed|shuffle|join strategy|\bskew\b/i.test(q)) score += 2.5;
+                if (/\bimplement\b|\bdesign\b|\bdebug\b|\bprove\b|\bderive\b/i.test(q)) score += 1.8;
+                if (/\bexample\b|\bwhen would you\b/i.test(q)) score += 1.0;
+                return score;
+            };
+
+            // If any explicit difficulties exist, sort by them; otherwise heuristic by question complexity.
+            const anyDifficulty = cards.some(c => !!c.difficulty);
+            const sorted = cards.slice().sort((a, b) => {
+                if (anyDifficulty) {
+                    const dr = difficultyRank(a.difficulty) - difficultyRank(b.difficulty);
+                    if (dr !== 0) return dr;
+                } else {
+                    const hr = scoreHeuristic(a) - scoreHeuristic(b);
+                    if (hr !== 0) return hr;
+                }
+                return (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0);
+            });
+
+            return sorted.slice(0, 24);
+        }
+
+        function renderFlashcards(cards) {
+            if (!cards || cards.length === 0) {
+                const canGenerateNotes = !!modalMaterial.topicId;
+                return `
+                    <div class="flashcards-empty">
+                        <div style="margin-bottom: 10px;">
+                            No flashcards detected in this material yet.
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            ${canGenerateNotes ? `<button class="btn btn-secondary" type="button" onclick="generateStudyNotesForCards(${modalMaterial.topicId})">Generate notes → Cards</button>` : ''}
+                            <button class="btn btn-secondary" type="button" onclick="setModalView('notes')">Back to Notes</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            const escape = (s) => (s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            const renderSide = (s) => {
+                // very small markdown support for cards
+                const text = escape(s);
+                return text
+                    .replace(/`([^`]+)`/g, '<code class="ai-inline-code">$1</code>')
+                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\n/g, '<br>');
+            };
+
+            const html = cards.map((c, idx) => {
+                const front = renderSide(c.front);
+                const back = c.back ? renderSide(c.back) : '<span style="color: var(--text-light);">(no answer yet)</span>';
+                return `
+                    <div class="flashcard" data-idx="${idx}" onclick="toggleFlashcard(this)">
+                        <button class="flashcard-copy" type="button" onclick="copyFlashcard(event, this)">Copy</button>
+                        <div class="flashcard-side-label">Front</div>
+                        <div class="flashcard-content">${front}</div>
+                        <div class="flashcard-back" style="display:none;">
+                            <div class="flashcard-side-label">Back</div>
+                            <div class="flashcard-content">${back}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `<div class="flashcards-grid">${html}</div>`;
+        }
+
+        function toggleFlashcard(el) {
+            if (!el) return;
+            // If user is selecting text, don't flip the card.
+            const sel = window.getSelection ? window.getSelection().toString() : '';
+            if (sel && sel.trim().length > 0) return;
+            const back = el.querySelector('.flashcard-back');
+            const frontLabel = el.querySelector('.flashcard-side-label');
+            const frontContent = el.querySelector('.flashcard-content');
+            if (!back || !frontLabel || !frontContent) return;
+
+            const isBack = el.classList.toggle('is-back');
+            if (isBack) {
+                // Swap to show back
+                frontLabel.style.display = 'none';
+                frontContent.style.display = 'none';
+                back.style.display = 'block';
+            } else {
+                back.style.display = 'none';
+                frontLabel.style.display = 'block';
+                frontContent.style.display = 'block';
+            }
+        }
+
+        async function copyFlashcard(event, btnEl) {
+            if (event) event.stopPropagation();
+            const card = btnEl.closest('.flashcard');
+            if (!card) return;
+            const isBack = card.classList.contains('is-back');
+            let text = '';
+            if (isBack) {
+                const backContent = card.querySelector('.flashcard-back .flashcard-content');
+                text = backContent ? backContent.textContent : '';
+            } else {
+                const frontContent = card.querySelector(':scope > .flashcard-content');
+                text = frontContent ? frontContent.textContent : '';
+            }
+            text = (text || '').trim();
+            if (!text) return;
+
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.remove();
+                }
+                const old = btnEl.textContent;
+                btnEl.textContent = 'Copied';
+                setTimeout(() => (btnEl.textContent = old), 900);
+            } catch (e) {
+                alert('Copy failed');
+            }
+        }
+
+        async function fetchStudyNotesMarkdown(topicId, force = false) {
+            const url = force ? `/api/topics/${topicId}/study-notes?force=1` : `/api/topics/${topicId}/study-notes`;
+            const response = await fetch(url, { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to generate notes');
+            }
+            return data.notes_markdown || '';
+        }
+
+        async function generateStudyNotesForCards(topicId) {
+            try {
+                const topicTitle = (modalMaterial && modalMaterial.title) ? modalMaterial.title : 'Study Notes';
+                const baseTitle = (topicTitle || '').replace(/\s+—\s+Notes\s*$/i, '').trim();
+                // Show loading
+                openStudyMaterialModal({
+                    title: baseTitle,
+                    kind: 'notes',
+                    topicId,
+                    text: '⏳ Generating notes...',
+                    defaultView: 'cards'
+                });
+                const notes = await fetchStudyNotesMarkdown(topicId, false);
+                openStudyMaterialModal({
+                    title: baseTitle,
+                    kind: 'notes',
+                    topicId,
+                    text: notes,
+                    defaultView: 'cards'
+                });
+                setModalView('cards');
+            } catch (e) {
+                alert(e.message || 'Failed to generate notes');
+            }
         }
 
         // Set minimum date to today (optional field)
@@ -2025,10 +2943,7 @@
                                         </div>
                                     </div>
                                     <div class="topic-actions">
-                                        <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}" title="${topic.ai_guidance ? 'Refresh AI guidance' : 'Generate AI guidance'}">
-                                            ${topic.ai_guidance ? '🔄' : '✨'}
-                                        </button>
-                                        <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" id="notes-btn-${topic.id}" title="${topic.ai_notes ? 'Refresh study notes' : 'Generate study notes'}">
+                                        <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" id="notes-btn-${topic.id}" title="${topic.ai_notes ? 'Refresh study notes (Notes + Cards)' : 'Generate study notes (Notes + Cards)'}">
                                             ${topic.ai_notes ? '🔄' : '📝'}
                                         </button>
                                         <button class="btn btn-ghost btn-mini" onclick="editTopicNotes(${topic.id})" title="Edit your notes">
@@ -2040,9 +2955,9 @@
                                         <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
                                     </div>
                                 </div>
-                                ${topic.ai_guidance ? `
-                                    <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
-                                        📖 View Guidance
+                                ${topic.ai_notes ? `
+                                    <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" style="margin-top: 8px;" title="Open study material (Notes + Cards)">
+                                        📚 Open Study Material
                                     </button>
                                 ` : ''}
                             </div>
@@ -2083,10 +2998,7 @@
                                             </div>
                                         </div>
                                         <div class="topic-actions">
-                                            <button class="btn btn-ghost btn-mini" onclick="generateAIGuidance(${topic.id})" id="ai-btn-${topic.id}" title="${topic.ai_guidance ? 'Refresh AI guidance' : 'Generate AI guidance'}">
-                                                ${topic.ai_guidance ? '🔄' : '✨'}
-                                            </button>
-                                            <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" id="notes-btn-${topic.id}" title="${topic.ai_notes ? 'Refresh study notes' : 'Generate study notes'}">
+                                            <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" id="notes-btn-${topic.id}" title="${topic.ai_notes ? 'Refresh study notes (Notes + Cards)' : 'Generate study notes (Notes + Cards)'}">
                                                 ${topic.ai_notes ? '🔄' : '📝'}
                                             </button>
                                             <button class="btn btn-ghost btn-mini" onclick="editTopicNotes(${topic.id})" title="Edit your notes">
@@ -2098,9 +3010,9 @@
                                             <button class="btn btn-ghost btn-mini" onclick="deleteTopic(${topic.id})">×</button>
                                         </div>
                                     </div>
-                                    ${topic.ai_guidance ? `
-                                        <button class="btn btn-ghost btn-mini" onclick="showExistingGuidance('${topic.topic_name || 'Topic'}', ${topic.id})" style="margin-top: 8px;">
-                                            📖 View Guidance
+                                    ${topic.ai_notes ? `
+                                        <button class="btn btn-ghost btn-mini" onclick="generateStudyNotes(${topic.id})" style="margin-top: 8px;" title="Open study material (Notes + Cards)">
+                                            📚 Open Study Material
                                         </button>
                                     ` : ''}
                                 </div>
@@ -2627,6 +3539,347 @@
             } catch (error) {
                 console.error('Error exporting PDF:', error);
                 alert('Failed to export PDF. Please try again.');
+            }
+        }
+
+        async function exportStudyToPDF() {
+            if (!currentInterviewId) {
+                alert('Select a study material first');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/interviews/${currentInterviewId}`);
+                const interview = await response.json();
+
+                const pdfContent = document.createElement('div');
+                pdfContent.style.padding = '20px 36px';
+                pdfContent.style.fontFamily = 'Inter, sans-serif';
+                pdfContent.style.color = '#1a1a1a';
+                pdfContent.style.maxWidth = '800px';
+                pdfContent.style.margin = '0';
+                pdfContent.style.boxSizing = 'border-box';
+
+                const company = interview.company && interview.company.trim() && interview.company !== 'Generic Company (US)'
+                    ? interview.company
+                    : 'General';
+                const title = `${company}${interview.position && interview.position.trim() ? ` — ${interview.position}` : ''}`;
+
+                pdfContent.innerHTML = `
+                    <div style="margin: 0 0 16px 0; padding-bottom: 12px; border-bottom: 2px solid #e0e0e0;">
+                        <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 6px 0;">${title}</h1>
+                        ${interview.interview_date ? `<div style="font-size: 12px; color: #666;">Interview Date: ${new Date(interview.interview_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>` : ''}
+                        <div style="font-size: 12px; color: #666; margin-top: 4px;">Exported: ${new Date().toLocaleDateString('en-US')}</div>
+                    </div>
+                `;
+
+                const topics = (interview.topics || []);
+                if (!topics.length) {
+                    alert('No topics to export');
+                    return;
+                }
+
+                // Only export topics that have something to study
+                const exportable = topics.filter(t => (t.ai_notes && String(t.ai_notes).trim()) || (t.notes && String(t.notes).trim()));
+                if (!exportable.length) {
+                    alert('No notes found yet. Generate 📝 Study Notes for at least one topic first.');
+                    return;
+                }
+
+                // Sort by category then topic name
+                exportable.sort((a, b) => {
+                    const ca = (a.category_name || '').toString();
+                    const cb = (b.category_name || '').toString();
+                    if (ca !== cb) return ca.localeCompare(cb);
+                    return (a.topic_name || '').toString().localeCompare((b.topic_name || '').toString());
+                });
+
+                const section = document.createElement('div');
+
+                for (const t of exportable) {
+                    const topicBlock = document.createElement('div');
+                    topicBlock.style.margin = '0 0 18px 0';
+                    topicBlock.style.paddingBottom = '14px';
+                    topicBlock.style.borderBottom = '1px solid #eee';
+                    topicBlock.style.pageBreakInside = 'avoid';
+
+                    const topicTitle = document.createElement('div');
+                    topicTitle.style.fontSize = '16px';
+                    topicTitle.style.fontWeight = '700';
+                    topicTitle.style.marginBottom = '6px';
+                    topicTitle.textContent = t.topic_name || 'Topic';
+
+                    const topicMeta = document.createElement('div');
+                    topicMeta.style.fontSize = '12px';
+                    topicMeta.style.color = '#666';
+                    topicMeta.style.marginBottom = '10px';
+                    const cat = t.category_name ? `Category: ${t.category_name.replace(/ > /g, ' → ')}` : '';
+                    const pri = t.priority ? `Priority: ${t.priority}` : '';
+                    topicMeta.textContent = [cat, pri].filter(Boolean).join(' • ');
+
+                    topicBlock.appendChild(topicTitle);
+                    if (topicMeta.textContent) topicBlock.appendChild(topicMeta);
+
+                    // Personal notes (always included if present)
+                    if (t.notes && String(t.notes).trim()) {
+                        const personalLabel = document.createElement('div');
+                        personalLabel.style.fontSize = '13px';
+                        personalLabel.style.fontWeight = '700';
+                        personalLabel.style.margin = '10px 0 6px 0';
+                        personalLabel.textContent = 'Your notes';
+                        topicBlock.appendChild(personalLabel);
+
+                        const personal = document.createElement('div');
+                        personal.style.fontSize = '12px';
+                        personal.style.whiteSpace = 'pre-wrap';
+                        personal.textContent = String(t.notes).trim();
+                        topicBlock.appendChild(personal);
+                    }
+
+                    // AI study notes (strip flashcards section so we can show cards separately)
+                    if (t.ai_notes && String(t.ai_notes).trim()) {
+                        const notesLabel = document.createElement('div');
+                        notesLabel.style.fontSize = '13px';
+                        notesLabel.style.fontWeight = '700';
+                        notesLabel.style.margin = '12px 0 6px 0';
+                        notesLabel.textContent = 'Study notes';
+                        topicBlock.appendChild(notesLabel);
+
+                        const notesText = stripFlashcardsSection(String(t.ai_notes));
+                        const notesHtml = document.createElement('div');
+                        notesHtml.style.fontSize = '12px';
+                        notesHtml.innerHTML = formatAIGuidance(notesText);
+                        topicBlock.appendChild(notesHtml);
+
+                        // Cards section
+                        const cards = extractFlashcards(String(t.ai_notes));
+                        if (cards && cards.length) {
+                            const cardsLabel = document.createElement('div');
+                            cardsLabel.style.fontSize = '13px';
+                            cardsLabel.style.fontWeight = '700';
+                            cardsLabel.style.margin = '12px 0 6px 0';
+                            cardsLabel.textContent = 'Practice cards';
+                            topicBlock.appendChild(cardsLabel);
+
+                            const list = document.createElement('ol');
+                            list.style.margin = '0';
+                            list.style.paddingLeft = '18px';
+                            list.style.fontSize = '12px';
+                            list.style.lineHeight = '1.5';
+
+                            cards.slice(0, 40).forEach((c) => {
+                                const li = document.createElement('li');
+                                li.style.marginBottom = '8px';
+                                const q = (c.front || '').trim();
+                                const a = (c.back || '').trim();
+                                li.innerHTML = `<strong>Q:</strong> ${q}${a ? `<br><strong>A:</strong> ${a}` : ''}`;
+                                list.appendChild(li);
+                            });
+                            topicBlock.appendChild(list);
+                        }
+                    }
+
+                    section.appendChild(topicBlock);
+                }
+
+                pdfContent.appendChild(section);
+                document.body.appendChild(pdfContent);
+
+                const opt = {
+                    margin: [10, 12, 12, 12],
+                    filename: `${company.replace(/\s+/g, '_')}_study_notes.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, useCORS: true },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                await html2pdf().set(opt).from(pdfContent).save();
+                pdfContent.remove();
+            } catch (e) {
+                console.error('Export study PDF error:', e);
+                alert('Failed to export study PDF');
+            }
+        }
+
+        async function exportCardsToPDF() {
+            if (!currentInterviewId) {
+                alert('Select a study material first');
+                return;
+            }
+
+            try {
+                if (typeof window.html2pdf !== 'function') {
+                    alert('PDF export unavailable (html2pdf not found).');
+                    return;
+                }
+
+                const response = await fetch(`/api/interviews/${currentInterviewId}`);
+                const interview = await response.json();
+
+                const topics = (interview.topics || []);
+                if (!topics.length) {
+                    alert('No topics to export');
+                    return;
+                }
+
+                // Collect cards from ai_notes (preferred) and fall back to ai_guidance if present
+                const cardPages = [];
+                for (const t of topics) {
+                    const sourceText = (t.ai_notes && String(t.ai_notes).trim())
+                        ? String(t.ai_notes)
+                        : (t.ai_guidance && String(t.ai_guidance).trim())
+                            ? String(t.ai_guidance)
+                            : '';
+                    if (!sourceText) continue;
+
+                    const cards = extractFlashcards(sourceText) || [];
+                    if (!cards.length) continue;
+
+                    const topicTitle = (t.topic_name || 'Topic').toString();
+                    const cat = t.category_name ? t.category_name.replace(/ > /g, ' → ') : '';
+
+                    cards.forEach((c) => {
+                        const q = (c.front || '').trim();
+                        const a = (c.back || '').trim();
+                        if (!q) return;
+                        cardPages.push({
+                            topicTitle,
+                            category: cat,
+                            q,
+                            a
+                        });
+                    });
+                }
+
+                if (!cardPages.length) {
+                    alert('No cards found yet. Generate 📝 Study Notes first (they include flashcards).');
+                    return;
+                }
+
+                const company = interview.company && interview.company.trim() && interview.company !== 'Generic Company (US)'
+                    ? interview.company
+                    : 'General';
+
+                // Deterministic export: write text directly to the underlying jsPDF instance (no DOM/canvas capture).
+                const opt = {
+                    margin: 0,
+                    jsPDF: { unit: 'mm', format: [152.4, 101.6], orientation: 'landscape' }
+                };
+                const worker = html2pdf().set(opt).from(document.createElement('div')).toPdf();
+                const pdf = await worker.get('pdf');
+
+                if (!pdf || typeof pdf.text !== 'function') {
+                    alert('PDF export failed: jsPDF instance unavailable');
+                    return;
+                }
+
+                const pageW = 152.4;
+                const pageH = 101.6;
+                const margin = 8.5;
+                const maxW = pageW - margin * 2;
+
+                const safe = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+                const split = (txt, fontSize) => {
+                    if (typeof pdf.splitTextToSize === 'function') {
+                        pdf.setFontSize(fontSize);
+                        return pdf.splitTextToSize(String(txt || ''), maxW);
+                    }
+                    // fallback naive split
+                    const str = String(txt || '');
+                    const words = str.split(/\s+/);
+                    const lines = [];
+                    let cur = '';
+                    for (const w of words) {
+                        const next = cur ? `${cur} ${w}` : w;
+                        if (next.length > 70) {
+                            if (cur) lines.push(cur);
+                            cur = w;
+                        } else {
+                            cur = next;
+                        }
+                    }
+                    if (cur) lines.push(cur);
+                    return lines;
+                };
+
+                const drawCard = (p, idx) => {
+                    // Border
+                    if (typeof pdf.setDrawColor === 'function') {
+                        pdf.setDrawColor(230);
+                        pdf.setLineWidth(0.3);
+                        if (typeof pdf.roundedRect === 'function') {
+                            pdf.roundedRect(3, 3, pageW - 6, pageH - 6, 3, 3, 'S');
+                        } else if (typeof pdf.rect === 'function') {
+                            pdf.rect(3, 3, pageW - 6, pageH - 6);
+                        }
+                    }
+
+                    // Header
+                    if (typeof pdf.setTextColor === 'function') pdf.setTextColor(100);
+                    if (typeof pdf.setFont === 'function') pdf.setFont('helvetica', 'normal');
+                    pdf.setFontSize(8);
+                    pdf.text(safe(p.topicTitle).slice(0, 60), margin, margin);
+                    pdf.text(safe(company).slice(0, 30), pageW - margin, margin, { align: 'right' });
+
+                    let y = margin + 8;
+
+                    // Q
+                    if (typeof pdf.setTextColor === 'function') pdf.setTextColor(20);
+                    if (typeof pdf.setFont === 'function') pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(9);
+                    pdf.text('Q', margin, y);
+                    y += 5;
+
+                    pdf.setFontSize(12);
+                    const qLines = split(p.q, 12);
+                    pdf.text(qLines, margin, y, { maxWidth: maxW });
+                    y += qLines.length * 5.2;
+
+                    // Divider
+                    y += 2;
+                    if (typeof pdf.setDrawColor === 'function') pdf.setDrawColor(235);
+                    if (typeof pdf.line === 'function') pdf.line(margin, y, pageW - margin, y);
+                    y += 6;
+
+                    // A
+                    if (typeof pdf.setFont === 'function') pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(9);
+                    pdf.text('A', margin, y);
+                    y += 5;
+
+                    if (typeof pdf.setFont === 'function') pdf.setFont('helvetica', 'normal');
+                    pdf.setFontSize(10);
+                    const aLines = split(p.a || '', 10);
+                    const footerY = pageH - margin;
+                    const maxLines = Math.max(1, Math.floor((footerY - y) / 4.6));
+                    const clipped = aLines.slice(0, maxLines);
+                    pdf.text(clipped, margin, y, { maxWidth: maxW });
+
+                    // Footer
+                    if (typeof pdf.setTextColor === 'function') pdf.setTextColor(120);
+                    pdf.setFontSize(8);
+                    pdf.text(safe(p.category).slice(0, 70), margin, pageH - margin);
+                    pdf.text(`${idx + 1}/${cardPages.length}`, pageW - margin, pageH - margin, { align: 'right' });
+                };
+
+                // Remove existing pages if possible; otherwise overwrite first page.
+                if (typeof pdf.deletePage === 'function' && typeof pdf.getNumberOfPages === 'function') {
+                    for (let i = pdf.getNumberOfPages(); i >= 1; i--) pdf.deletePage(i);
+                    pdf.addPage([pageW, pageH], 'landscape');
+                    drawCard(cardPages[0], 0);
+                } else {
+                    drawCard(cardPages[0], 0);
+                }
+
+                for (let i = 1; i < cardPages.length; i++) {
+                    pdf.addPage([pageW, pageH], 'landscape');
+                    drawCard(cardPages[i], i);
+                }
+
+                pdf.save(`${company.replace(/\\s+/g, '_')}_index_cards_6x4.pdf`);
+            } catch (e) {
+                console.error('Export cards PDF error:', e);
+                alert('Failed to export cards PDF');
             }
         }
 
@@ -3166,67 +4419,8 @@
             }
         }
 
-        async function generateAIGuidance(topicId) {
-            const btn = document.getElementById(`ai-btn-${topicId}`);
-            const modal = document.getElementById('guidance-modal');
-            const modalContent = document.getElementById('modal-guidance-content');
-            const modalTitle = document.getElementById('modal-title');
-            
-            // Get topic name for modal title
-            const topicItem = btn.closest('.topic-item');
-            const topicName = topicItem ? topicItem.querySelector('.topic-name')?.textContent || 'Topic' : 'Topic';
-
-            // If guidance exists already, the button shows 🔄. Treat click as a "refresh" (force regenerate).
-            const shouldForce = (btn && btn.textContent && btn.textContent.trim() === '🔄');
-            
-            // Show modal with loading state
-            modalTitle.textContent = topicName;
-            modalContent.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-light);">⏳ ${shouldForce ? 'Refreshing' : 'Generating'} guidance...</div>`;
-            modal.classList.add('active');
-            
-            btn.disabled = true;
-            btn.textContent = '⏳';
-
-            // Store the currently active tab before reloading
-            let activeTabId = null;
-            const activeTab = document.querySelector('.topic-tab.active');
-            if (activeTab) {
-                activeTabId = activeTab.id.replace('tab-', '');
-            }
-
-            try {
-                const url = shouldForce ? `/api/topics/${topicId}/ai-guidance?force=1` : `/api/topics/${topicId}/ai-guidance`;
-                const response = await fetch(url, {
-                    method: 'POST'
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    // Update modal content
-                    modalContent.innerHTML = formatAIGuidance(data.ai_guidance);
-                    btn.textContent = '🔄';
-                    // Reload interview to get updated topic data
-                    await loadInterviewDetail(currentInterviewId);
-                    
-                    // Restore the previously active tab
-                    if (activeTabId) {
-                        setTimeout(() => {
-                            window.switchTopicTab(activeTabId);
-                        }, 100);
-                    }
-                } else {
-                    modalContent.innerHTML = `<div style="color: var(--accent); padding: 20px; text-align: center;">${data.error || 'Failed to generate AI guidance'}</div>`;
-                    btn.textContent = '✨';
-                    btn.disabled = false;
-                }
-            } catch (error) {
-                console.error('Error generating AI guidance:', error);
-                modalContent.innerHTML = '<div style="color: var(--accent); padding: 20px; text-align: center;">Failed to generate AI guidance. Please try again.</div>';
-                btn.textContent = '✨';
-                btn.disabled = false;
-            }
-        }
+        // AI guidance generation is kept server-side as an implementation detail.
+        // UI surfaces only Study Notes + Cards to avoid redundancy/confusion.
 
         function closeGuidanceModal(event) {
             // If event is provided and it's the overlay click, close
@@ -3244,26 +4438,7 @@
             }
         });
 
-        function showExistingGuidance(topicName, topicId) {
-            const modal = document.getElementById('guidance-modal');
-            const modalContent = document.getElementById('modal-guidance-content');
-            const modalTitle = document.getElementById('modal-title');
-            
-            // Fetch the topic to get the guidance
-            fetch(`/api/interviews/${currentInterviewId}`)
-                .then(response => response.json())
-                .then(interview => {
-                    const topic = interview.topics.find(t => t.id === topicId);
-                    if (topic && topic.ai_guidance) {
-                        modalTitle.textContent = topicName;
-                        modalContent.innerHTML = formatAIGuidance(topic.ai_guidance);
-                        modal.classList.add('active');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading guidance:', error);
-                });
-        }
+        // showExistingGuidance removed from UI (see comment above)
 
         async function generateStudyNotes(topicId) {
             const btn = document.getElementById(`notes-btn-${topicId}`);
@@ -3277,9 +4452,13 @@
             // Refresh notes when button is in 🔄 state (we set it after first success)
             const shouldForce = (btn && btn.textContent && btn.textContent.trim() === '🔄');
 
-            modalTitle.textContent = `${topicName} — Notes`;
-            modalContent.innerHTML = `<div style="text-align: center; padding: 40px; color: var(--text-light);">⏳ ${shouldForce ? 'Refreshing' : 'Generating'} notes...</div>`;
-            modal.classList.add('active');
+            openStudyMaterialModal({
+                title: `${topicName} — Notes`,
+                kind: 'notes',
+                topicId,
+                text: `⏳ ${shouldForce ? 'Refreshing' : 'Generating'} notes...`,
+                defaultView: 'notes'
+            });
 
             btn.disabled = true;
             btn.textContent = '⏳';
@@ -3297,8 +4476,8 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    // Reuse formatter (Markdown-ish) for now
-                    modalContent.innerHTML = formatAIGuidance(data.notes_markdown);
+                    // Show notes with toggle for Cards view
+                    openStudyMaterialModal({ title: `${topicName} — Notes`, kind: 'notes', topicId, text: data.notes_markdown, defaultView: 'notes' });
                     btn.textContent = '🔄';
                     btn.disabled = false;
 
@@ -3327,6 +4506,7 @@
             const modal = document.getElementById('guidance-modal');
             const modalContent = document.getElementById('modal-guidance-content');
             const modalTitle = document.getElementById('modal-title');
+            const toggle = document.getElementById('modal-view-toggle');
 
             // Store the currently active tab before reloading
             let activeTabId = null;
@@ -3343,6 +4523,7 @@
                 const existingNotes = topic?.notes || '';
 
                 modalTitle.textContent = `${topicName} — Your notes`;
+                if (toggle) toggle.style.display = 'none';
                 modalContent.innerHTML = `
                     <div style="display:flex; flex-direction:column; gap:12px;">
                         <textarea id="user-topic-notes" style="width:100%; min-height:220px; padding:12px; border:1px solid var(--border); border-radius:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 0.9rem; line-height: 1.4;" placeholder="Add your own study material here (Markdown ok)">${existingNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
@@ -3500,7 +4681,13 @@
     <div class="modal-overlay" id="guidance-modal" onclick="closeGuidanceModal(event)">
         <div class="modal-card" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <div class="modal-title" id="modal-title">AI Study Guidance</div>
+                <div>
+                    <div class="modal-title" id="modal-title">AI Study Guidance</div>
+                    <div class="modal-view-toggle" id="modal-view-toggle" style="display:none;">
+                        <button class="btn btn-ghost btn-mini" id="modal-view-notes" type="button">Notes</button>
+                        <button class="btn btn-ghost btn-mini" id="modal-view-cards" type="button">Cards</button>
+                    </div>
+                </div>
                 <button class="modal-close" onclick="closeGuidanceModal()" aria-label="Close">×</button>
             </div>
             <div class="ai-guidance" id="modal-guidance-content">

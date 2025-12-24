@@ -407,6 +407,20 @@
 
         <div id="message"></div>
 
+        <div class="card" style="margin-bottom: 24px;">
+            <h2 style="margin-top: 0; margin-bottom: 16px;">AI Settings</h2>
+            <div class="form-row">
+                <div class="input-group">
+                    <label for="flashcards-count">Flashcards per topic</label>
+                    <input type="number" id="flashcards-count" min="5" max="40" step="1" placeholder="15">
+                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 6px;">
+                        Used when generating 📝 Study Notes (Cards are derived from these).
+                    </div>
+                </div>
+                <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </div>
+
         <div id="categories-container"></div>
 
         <div class="card">
@@ -425,6 +439,38 @@
 
     <script>
         let topicsData = { categories: [], uncategorized_topics: [] };
+        let adminSettings = { flashcards_count: 15 };
+
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/admin/settings');
+                adminSettings = await response.json();
+                const el = document.getElementById('flashcards-count');
+                if (el && adminSettings && typeof adminSettings.flashcards_count !== 'undefined') {
+                    el.value = adminSettings.flashcards_count;
+                }
+            } catch (error) {
+                // Non-fatal
+                console.warn('Error loading settings:', error);
+            }
+        }
+
+        async function saveSettings() {
+            try {
+                const el = document.getElementById('flashcards-count');
+                const flashcards_count = el ? parseInt(el.value || '15', 10) : 15;
+                const response = await fetch('/api/admin/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ flashcards_count })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Failed to save settings');
+                showMessage('✅ Settings saved!', 'success');
+            } catch (error) {
+                showMessage('Error saving settings: ' + error.message, 'error');
+            }
+        }
 
         async function loadTopics() {
             try {
@@ -435,6 +481,10 @@
                 showMessage('Error loading topics: ' + error.message, 'error');
             }
         }
+
+        // Initialize
+        loadSettings();
+        loadTopics();
 
         // Recursive function to render a node (category/subcategory) at any depth
         function renderNode(node, path, depth = 0) {
@@ -851,8 +901,7 @@
             }, 5000);
         }
 
-        // Load topics on page load
-        loadTopics();
+        // Load topics on page load (handled above with settings init)
     </script>
 </body>
 </html>
