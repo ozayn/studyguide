@@ -38,8 +38,13 @@
     .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
     .q { font-size: 18px; line-height: 1.35; font-weight: 650; }
     .a { font-size: 16px; line-height: 1.5; color: rgba(234,240,255,0.92); white-space: pre-wrap; }
+    .ev { font-size: 13px; line-height: 1.45; color: rgba(234,240,255,0.72); white-space: pre-wrap; border-left: 3px solid rgba(124,58,237,0.55); padding-left: 10px; margin-top: 8px; }
     .footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
-    .pill { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 4px 8px; border-radius: 999px; }
+    .pill { font-size: 12px; color: var(--muted); border: 1px solid var(--border); padding: 4px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; flex: 0 0 8px; }
+    .chip { font-size: 12px; color: rgba(234,240,255,0.92); border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
+    .chip.muted { color: var(--muted); }
+    .chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
     .controls { display: flex; gap: 8px; flex-wrap: wrap; }
     @media print { .topbar { display: none; } body { background: white; color: black; } .card { background: none; border: 1px solid #ddd; } }
   </style>
@@ -64,11 +69,12 @@
       <div class="label" id="label">Question</div>
       <div class="q" id="q">Loading…</div>
       <div class="a" id="a" style="display:none;"></div>
+      <div class="ev" id="ev" style="display:none;"></div>
       <div class="footer">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <span class="pill" id="pos">0 / 0</span>
           <span class="pill" id="level"></span>
-          <span class="pill" id="source"></span>
+          <span class="chips" id="source"></span>
         </div>
         <div class="controls">
           <button class="btn" onclick="prevCard(event)">Prev</button>
@@ -89,14 +95,78 @@
     document.getElementById('meta').textContent =
       `Folder: ${DECK.folder_id || '—'} • Kind: ${DECK.kind || '—'} • Generated: ${DECK.created_at || '—'} • Cards: ${cards.length}`;
 
+    function compactSource(s) {
+      let v = String(s || '').trim();
+      if (!v) return '';
+      // Remove common noisy prefixes
+      v = v.replace(/^My Drive\s*\/\s*/i, '');
+      v = v.replace(/^AI Course\s*\/\s*/i, '');
+      v = v.replace(/^AIML\s*Course\s*\/\s*/i, '');
+      // If still very deep, keep only the last 3 segments for readability
+      const parts = v.split('/').map(x => x.trim()).filter(Boolean);
+      if (parts.length > 3) v = parts.slice(parts.length - 3).join(' / ');
+      return v;
+    }
+
+    function hueFromString(str) {
+      const s = String(str || '');
+      let h = 0;
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      return h % 360;
+    }
+
+    function renderSourceChips(source) {
+      const el = document.getElementById('source');
+      if (!el) return;
+      el.innerHTML = '';
+      const s = compactSource(source);
+      if (!s) return;
+
+      // Split on "/" and also " / " (we normalize to "/")
+      const parts = s.split('/').map(x => x.trim()).filter(Boolean);
+      const file = parts.length ? parts[parts.length - 1] : s;
+      const parent = parts.length >= 2 ? parts[parts.length - 2] : '';
+      const category = parts.length >= 3 ? parts[parts.length - 3] : (parent || 'Source');
+      const hue = hueFromString(category);
+      const dotColor = `hsl(${hue} 80% 60%)`;
+
+      const catChip = document.createElement('span');
+      catChip.className = 'chip';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = dotColor;
+      const catText = document.createElement('span');
+      catText.textContent = category;
+      catChip.appendChild(dot);
+      catChip.appendChild(catText);
+
+      el.appendChild(catChip);
+
+      if (parent && parent !== category) {
+        const parentChip = document.createElement('span');
+        parentChip.className = 'chip muted';
+        parentChip.textContent = parent;
+        el.appendChild(parentChip);
+      }
+
+      if (file) {
+        const fileChip = document.createElement('span');
+        fileChip.className = 'chip muted';
+        fileChip.textContent = file;
+        el.appendChild(fileChip);
+      }
+    }
+
     function render() {
       const c = cards[idx] || {};
       document.getElementById('q').textContent = c.q || '(no question)';
       document.getElementById('a').textContent = c.a || '';
+      document.getElementById('ev').textContent = c.evidence ? `Evidence: ${c.evidence}` : '';
       document.getElementById('pos').textContent = `${cards.length ? (idx + 1) : 0} / ${cards.length}`;
       document.getElementById('level').textContent = c.level ? `Level: ${c.level}` : '';
-      document.getElementById('source').textContent = c.source ? `Source: ${c.source}` : '';
+      renderSourceChips(c.source || '');
       document.getElementById('a').style.display = showA ? 'block' : 'none';
+      document.getElementById('ev').style.display = (showA && c.evidence) ? 'block' : 'none';
       document.getElementById('label').textContent = showA ? 'Answer' : 'Question';
     }
 

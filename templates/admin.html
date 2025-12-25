@@ -367,6 +367,48 @@
                 width: 100%;
             }
         }
+
+        /* --- Drive UI cleanup --- */
+        .drive-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 16px;
+            align-items: start;
+        }
+        @media (max-width: 980px) {
+            .drive-grid { grid-template-columns: 1fr; }
+        }
+        .drive-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .drive-actions .btn {
+            width: 100%;
+            justify-content: center;
+        }
+        .drive-stats {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .drive-stat {
+            font-size: 12px;
+            color: var(--text);
+            border: 1px solid var(--border);
+            background: var(--bg);
+            padding: 6px 10px;
+            border-radius: 999px;
+        }
+        .drive-stat.muted {
+            color: var(--text-light);
+        }
+        .drive-logs summary {
+            cursor: pointer;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -424,41 +466,76 @@
         {% if drive_enabled %}
         <div class="card" style="margin-bottom: 24px;">
             <h2 style="margin-top: 0; margin-bottom: 8px;">Google Drive (PDF + .ipynb)</h2>
-            <div style="color: var(--text-light); font-size: 0.85rem; margin-bottom: 14px;">
-                Connect Drive, index a folder, then extract topics from <strong>PDF</strong> and <strong>.ipynb</strong> files (incremental; safe for large folders).
-            </div>
+            <div style="margin-bottom: 14px;"></div>
 
-            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 12px;">
-                <button class="btn btn-secondary" type="button" onclick="connectDrive()">🔐 Connect Drive</button>
-                <div id="drive-status" style="font-size: 0.85rem; color: var(--text-light);">Checking Drive status…</div>
-            </div>
+            <div class="drive-grid">
+                <div>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom: 10px;">
+                        <button class="btn btn-secondary" type="button" onclick="connectDrive()">🔐 Connect Drive</button>
+                        <div id="drive-status" style="font-size: 0.85rem; color: var(--text-light);">Checking Drive status…</div>
+                    </div>
 
-            <div class="form-row" style="margin-top: 8px;">
-                <div class="input-group" style="flex: 1;">
-                    <label for="drive-folder-id">Drive Folder ID</label>
-                    <input type="text" id="drive-folder-id" placeholder="e.g. 1a2B3cD4eF... (from Drive URL)">
-                    <div style="font-size: 0.8rem; color: var(--text-light); margin-top: 6px;">
-                        Tip: open the folder in Drive and copy the ID from the URL (between <code>/folders/</code> and <code>?</code>).
+                    <div class="input-group" style="margin: 0;">
+                        <label for="drive-folder-id">Drive ID</label>
+                        <input type="text" id="drive-folder-id">
+                        <div id="drive-folder-stats" class="drive-stats"></div>
+                    </div>
+
+                    <div style="display:flex; align-items:center; gap:10px; margin-top: 10px; flex-wrap:wrap;">
+                        <label style="display:flex; align-items:center; gap:8px; font-size: 0.85rem; color: var(--text-light); user-select:none;">
+                            <input type="checkbox" id="drive-full-run" style="transform: translateY(1px);">
+                            Full run (process whole folder — can take a long time)
+                        </label>
+                    </div>
+
+                    <div id="drive-file-detail-row" style="display:none; margin-top: 6px;">
+                        <div style="font-size: 0.85rem; color: var(--text-light);">
+                            Notes mode: <strong>Deep dive</strong> (single version)
+                        </div>
+                    </div>
+
+                    <div id="drive-progress" style="display:none; margin-top: 12px;">
+                        <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:6px;">
+                            <div id="drive-progress-label" style="font-size: 0.85rem; color: var(--text-light);">Working…</div>
+                            <div id="drive-progress-eta" style="font-size: 0.8rem; color: var(--text-light);">Estimating…</div>
+                        </div>
+                        <div style="height: 10px; width: 100%; background: rgba(0,0,0,0.08); border: 1px solid var(--border); border-radius: 999px; overflow:hidden;">
+                            <div id="drive-progress-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, rgba(59,130,246,0.85), rgba(124,58,237,0.85)); transition: width 120ms linear;"></div>
+                        </div>
                     </div>
                 </div>
-                <button class="btn btn-primary" type="button" onclick="driveRunAllDSMid()" id="drive-run-all-btn">Run: Index → Extract → Generate DS Guide</button>
-                <button class="btn btn-secondary" type="button" onclick="driveOpenDSMidGuide()" id="drive-open-ds-btn">Open DS Guide</button>
+
+                <div class="drive-actions">
+                    <button class="btn btn-primary" type="button" onclick="driveRunAllDSMid()" id="drive-run-all-btn">Build DS Guide</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveOpenDSMidGuide()" id="drive-open-ds-btn">Open DS Guide</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveOpenFlashcards()" id="drive-folder-fc-btn">Study Flashcards</button>
+
+                    <div style="height: 1px; background: var(--border); margin: 6px 0;"></div>
+                    <button class="btn btn-primary" type="button" onclick="driveGenerateFileNotes()" id="drive-file-notes-btn" style="display:none;">Generate Notes</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveOpenFileNotes()" id="drive-open-file-notes-btn" style="display:none;">Open Notes</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveOpenFileFlashcards()" id="drive-open-file-fc-btn" style="display:none;">Study Flashcards</button>
+                </div>
             </div>
 
             <details style="margin-top: 12px;">
-                <summary style="cursor:pointer; color: var(--text-light); font-size: 0.9rem;">Advanced</summary>
-                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px;">
-                    <button class="btn btn-secondary" type="button" onclick="driveIndex()">Index Folder</button>
-                    <button class="btn btn-secondary" type="button" onclick="driveExtractTopics()">Extract Topics (1 batch)</button>
-                    <button class="btn btn-secondary" type="button" onclick="driveGenerateGuide()">Generate Concise (Course) Guide</button>
-                    <button class="btn btn-secondary" type="button" onclick="driveOpenGuide()">Open Concise (Course) Guide</button>
-                    <button class="btn btn-secondary" type="button" onclick="driveGenerateDSMidGuide()">Generate DS (Mid) Guide</button>
-                        <button class="btn btn-secondary" type="button" onclick="driveGenerateFlashcards()">Generate Flashcards (from files)</button>
-                        <button class="btn btn-secondary" type="button" onclick="driveOpenFlashcards()">Open Flashcards</button>
+                <summary style="cursor:pointer; color: var(--text-light); font-size: 0.9rem;">Advanced (optional)</summary>
+                <div style="margin-top: 10px; color: var(--text-light); font-size: 0.85rem;">
+                    Tools for folder mode:
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 8px;">
+                    <button class="btn btn-secondary" type="button" onclick="driveIndex()">Index (scan items)</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveExtractTopics()">Extract (batch 10)</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveGenerateGuide()">Generate concise guide</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveOpenGuide()">Open concise guide</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveGenerateDSMidGuide()">Generate DS guide</button>
+                    <button class="btn btn-secondary" type="button" onclick="driveGenerateFlashcards()">Regenerate flashcards</button>
                 </div>
             </details>
 
-            <div id="drive-output" style="margin-top: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); padding: 12px; border-radius: 10px; color: #111;"></div>
+            <details class="drive-logs" style="margin-top: 12px;">
+                <summary>Show run details (JSON)</summary>
+                <div id="drive-output" style="margin-top: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); padding: 12px; border-radius: 10px; color: #111;"></div>
+            </details>
         </div>
         {% endif %}
 
@@ -523,7 +600,7 @@
             }
         }
 
-        {% if drive_enabled %}
+        // Drive helpers (safe even if Drive UI is hidden)
         function setDriveOutput(obj) {
             const el = document.getElementById('drive-output');
             if (!el) return;
@@ -556,6 +633,8 @@
                 el.textContent = 'Drive status unavailable';
                 el.style.color = 'var(--danger)';
             }
+            // Best-effort stats refresh (no-op if folder id empty)
+            refreshDriveFolderStats();
         }
 
         function connectDrive() {
@@ -563,12 +642,312 @@
             window.location.href = '/auth/login?drive=1';
         }
 
-        async function driveIndex() {
-            const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
-            if (!folderId) {
-                showMessage('Please paste a Drive folder ID first', 'error');
+        function _msToEta(ms) {
+            if (!ms || ms < 0) return '—';
+            const s = Math.max(0, Math.round(ms / 1000));
+            if (s < 60) return `${s}s`;
+            const m = Math.floor(s / 60);
+            const r = s % 60;
+            return `${m}m ${r}s`;
+        }
+
+        let _driveProgressTimer = null;
+        function startDriveProgress(label, estimatedMs, basePct = 0, spanPct = 100) {
+            const wrap = document.getElementById('drive-progress');
+            const bar = document.getElementById('drive-progress-bar');
+            const lab = document.getElementById('drive-progress-label');
+            const eta = document.getElementById('drive-progress-eta');
+            if (!wrap || !bar || !lab || !eta) return;
+            wrap.style.display = 'block';
+            lab.textContent = label || 'Working…';
+            const start = Date.now();
+            const dur = Math.max(1200, Number(estimatedMs) || 20000);
+            const tick = () => {
+                const t = Date.now() - start;
+                const p = Math.min(0.985, t / dur); // don't hit 100% until request finishes
+                const pct = Math.max(0, Math.min(100, basePct + p * spanPct));
+                bar.style.width = `${pct}%`;
+                const remaining = Math.max(0, dur - t);
+                eta.textContent = `ETA: ${_msToEta(remaining)} (estimated)`;
+            };
+            if (_driveProgressTimer) clearInterval(_driveProgressTimer);
+            tick();
+            _driveProgressTimer = setInterval(tick, 150);
+        }
+
+        function finishDriveProgress(ok, label) {
+            const wrap = document.getElementById('drive-progress');
+            const bar = document.getElementById('drive-progress-bar');
+            const lab = document.getElementById('drive-progress-label');
+            const eta = document.getElementById('drive-progress-eta');
+            if (_driveProgressTimer) clearInterval(_driveProgressTimer);
+            _driveProgressTimer = null;
+            if (!wrap || !bar || !lab || !eta) return;
+            lab.textContent = label || (ok ? 'Done' : 'Failed');
+            eta.textContent = ok ? 'Complete' : 'Error';
+            bar.style.width = ok ? '100%' : bar.style.width;
+            setTimeout(() => {
+                // keep visible briefly; then hide
+                wrap.style.display = 'none';
+                bar.style.width = '0%';
+                eta.textContent = 'Estimating…';
+            }, ok ? 900 : 2200);
+        }
+
+        function parseDriveResource(input) {
+            const raw = String(input || '').trim();
+            if (!raw) return { type: 'unknown', id: '' };
+
+            // Normalize whitespace/newlines in pasted text
+            let s = raw;
+            try { s = s.replace(/\s+/g, ' ').trim(); } catch (e) {}
+
+            // Folder links:
+            // - https://drive.google.com/drive/folders/<FOLDER_ID>?...
+            // - https://drive.google.com/drive/u/0/folders/<FOLDER_ID>
+            let m = s.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+            if (m && m[1]) return { type: 'folder', id: m[1] };
+
+            // File links:
+            // - https://drive.google.com/file/d/<FILE_ID>/view
+            // - https://docs.google.com/document/d/<FILE_ID>/edit
+            // - https://docs.google.com/spreadsheets/d/<FILE_ID>/edit
+            // - https://drive.google.com/uc?id=<FILE_ID>&export=download
+            // - https://colab.research.google.com/drive/<FILE_ID>
+            m = s.match(/colab\.research\.google\.com\/drive\/([a-zA-Z0-9_-]+)/i);
+            if (m && m[1]) return { type: 'file', id: m[1] };
+            m = s.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+            if (m && m[1]) return { type: 'file', id: m[1] };
+            m = s.match(/docs\.google\.com\/(?:document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/);
+            if (m && m[1]) return { type: 'file', id: m[1] };
+            m = s.match(/\/uc\?[^#]*[?&]id=([a-zA-Z0-9_-]+)/);
+            if (m && m[1]) return { type: 'file', id: m[1] };
+
+            // Ambiguous /open?id=<ID> (could be file or folder).
+            m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (m && m[1]) return { type: 'id', id: m[1] };
+
+            // If it's already a bare id, keep it.
+            if (/^[a-zA-Z0-9_-]{10,}$/.test(s)) return { type: 'id', id: s };
+
+            return { type: 'unknown', id: raw };
+        }
+
+        function getDriveFolderId() {
+            const el = document.getElementById('drive-folder-id');
+            if (!el) return '';
+            const current = String(el.value || '').trim();
+            const parsed = parseDriveResource(current);
+            // Normalize ONLY folder links to ids for visibility.
+            // Do NOT rewrite file links; otherwise they become ambiguous bare ids and the UI can't tell file vs folder.
+            if (parsed && parsed.type === 'folder' && parsed.id && parsed.id !== current) el.value = parsed.id;
+
+            // Only folder ids are accepted for folder-scoped operations.
+            if (parsed.type === 'folder') return parsed.id.trim();
+            if (parsed.type === 'file') return '';
+            // For ambiguous ids, assume folder id (most common for this input), but still allow stats/ops.
+            if (parsed.type === 'id') return parsed.id.trim();
+            return '';
+        }
+
+        function getDriveFileId() {
+            const el = document.getElementById('drive-folder-id');
+            if (!el) return '';
+            const current = String(el.value || '').trim();
+            const parsed = parseDriveResource(current);
+            // Do not rewrite the input for file links; keep the full link visible.
+            if (parsed.type === 'file') return (parsed.id || '').trim();
+            return '';
+        }
+
+        async function driveGenerateFileNotes() {
+            const fileId = getDriveFileId();
+            if (!fileId) {
+                showMessage('Paste a Drive FILE link first', 'error');
+                return null;
+            }
+            const kind = 'file_notes_deep';
+            startDriveProgress('Generating notes for file…', 35000);
+            setDriveOutput('Generating file notes…');
+            try {
+                const res = await fetch('/api/drive/file/guide/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_id: fileId, kind })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'File notes generation failed');
+                setDriveOutput(data);
+                showMessage('✅ File notes generated!', 'success');
+                finishDriveProgress(true, 'File notes generated');
+                return data;
+            } catch (e) {
+                setDriveOutput({ error: e.message || String(e) });
+                showMessage('File notes error: ' + (e.message || e), 'error');
+                finishDriveProgress(false, 'File notes failed');
+                return null;
+            }
+        }
+
+        async function driveOpenFileNotes() {
+            const fileId = getDriveFileId();
+            if (!fileId) {
+                showMessage('Paste a Drive FILE link first', 'error');
                 return;
             }
+            const kind = 'file_notes_deep';
+            // Auto-generate if missing
+            const qs = new URLSearchParams();
+            qs.set('file_id', fileId);
+            qs.set('kind', kind);
+            const check = await fetch(`/api/drive/guide/latest?${qs.toString()}`);
+            if (!check.ok) {
+                const generated = await driveGenerateFileNotes();
+                if (!generated) return;
+            }
+            window.open(`/drive/guide/view/latest?${qs.toString()}`, '_blank');
+        }
+
+        async function driveOpenFileFlashcards() {
+            const fileId = getDriveFileId();
+            if (!fileId) {
+                showMessage('Paste a Drive FILE link first', 'error');
+                return;
+            }
+            const notes_kind = 'file_notes_deep';
+            const qs = new URLSearchParams();
+            qs.set('file_id', fileId);
+            qs.set('kind', 'file_pdf');
+            // Auto-regenerate if missing or low-quality deck
+            const check = await fetch(`/api/drive/flashcards/latest?${qs.toString()}`);
+            let shouldRegen = !check.ok;
+            if (check.ok) {
+                const existing = await check.json().catch(() => null);
+                const deckJson = existing && existing.deck_json ? String(existing.deck_json) : '';
+                if (!deckJson || !deckJson.includes('\"evidence\"')) shouldRegen = true;
+            }
+            if (shouldRegen) {
+                startDriveProgress('Generating flashcards for file…', 45000);
+                setDriveOutput('Generating file flashcards…');
+                const res = await fetch('/api/drive/file/flashcards/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_id: fileId, kind: 'file_pdf', cards_count: 18, notes_kind })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    finishDriveProgress(false, 'File flashcards failed');
+                    throw new Error(data.error || 'File flashcards generation failed');
+                }
+                setDriveOutput(data);
+                finishDriveProgress(true, `Generated ${data.card_count} cards`);
+            }
+            window.open(`/drive/flashcards/view/latest?${qs.toString()}`, '_blank');
+        }
+
+        function renderDriveFolderHint() {
+            const el = document.getElementById('drive-folder-stats');
+            const inputEl = document.getElementById('drive-folder-id');
+            if (!el || !inputEl) return;
+            const raw = String(inputEl.value || '').trim();
+            if (!raw) {
+                el.innerHTML = '<span class="drive-stat muted">Paste a Drive folder link/id (folder mode) or a file link (file mode).</span>';
+                return;
+            }
+            const parsed = parseDriveResource(raw);
+            const fileNotesBtn = document.getElementById('drive-file-notes-btn');
+            const openFileNotesBtn = document.getElementById('drive-open-file-notes-btn');
+            const openFileFcBtn = document.getElementById('drive-open-file-fc-btn');
+            const detailRow = document.getElementById('drive-file-detail-row');
+            const runFolderBtn = document.getElementById('drive-run-all-btn');
+            const openFolderGuideBtn = document.getElementById('drive-open-ds-btn');
+            const openFolderFcBtn = document.getElementById('drive-folder-fc-btn');
+            // Toggle file-mode actions
+            const showFile = parsed.type === 'file';
+            if (fileNotesBtn) fileNotesBtn.style.display = showFile ? 'inline-flex' : 'none';
+            if (openFileNotesBtn) openFileNotesBtn.style.display = showFile ? 'inline-flex' : 'none';
+            if (openFileFcBtn) openFileFcBtn.style.display = showFile ? 'inline-flex' : 'none';
+            if (detailRow) detailRow.style.display = showFile ? 'block' : 'none';
+            // Toggle folder-mode primary actions
+            const showFolder = !showFile;
+            if (runFolderBtn) runFolderBtn.style.display = showFolder ? 'inline-flex' : 'none';
+            if (openFolderGuideBtn) openFolderGuideBtn.style.display = showFolder ? 'inline-flex' : 'none';
+            if (openFolderFcBtn) openFolderFcBtn.style.display = showFolder ? 'inline-flex' : 'none';
+
+            if (parsed.type === 'file') {
+                el.innerHTML = `<span class="drive-stat" style="border-color: rgba(239,68,68,0.45);">Detected: <strong>File</strong></span>
+                                <span class="drive-stat muted">File mode: generate notes / flashcards for this file.</span>`;
+                return;
+            }
+            if (parsed.type === 'folder') {
+                el.innerHTML = `<span class="drive-stat">Detected: <strong>Folder</strong></span>
+                                <span class="drive-stat muted">Folder mode: build guides / flashcards for the folder.</span>`;
+                return;
+            }
+            if (parsed.type === 'id') {
+                el.innerHTML = `<span class="drive-stat">Detected: <strong>ID</strong></span>
+                                <span class="drive-stat muted">Assuming folder mode. If you meant a file, paste a full file link.</span>`;
+                return;
+            }
+            el.innerHTML = `<span class="drive-stat muted">Unrecognized link — please paste a Drive folder link/id.</span>`;
+        }
+
+        async function driveFolderStats() {
+            try {
+                const folderId = getDriveFolderId();
+                if (!folderId) return null;
+                const res = await fetch(`/api/drive/folder/stats?folder_id=${encodeURIComponent(folderId)}`);
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function renderDriveFolderStats(stats) {
+            const el = document.getElementById('drive-folder-stats');
+            if (!el) return;
+            if (!stats) {
+                el.innerHTML = '<span class="drive-stat muted">No folder stats yet — click “Index Folder” or “Run DS Guide”.</span>';
+                return;
+            }
+            const total = Number(stats.total || 0);
+            const pdf = Number(stats.pdf_total || 0);
+            const extracted = Number(stats.extracted_total || 0);
+            const excerpts = Number(stats.excerpt_total || 0);
+            el.innerHTML = `
+                <span class="drive-stat">PDFs: <strong>${pdf}</strong></span>
+                <span class="drive-stat">Indexed: <strong>${total}</strong></span>
+                <span class="drive-stat">Extracted: <strong>${extracted}</strong></span>
+                <span class="drive-stat">Excerpts: <strong>${excerpts}</strong></span>
+            `;
+        }
+
+        async function refreshDriveFolderStats() {
+            renderDriveFolderHint();
+            const stats = await driveFolderStats();
+            // Only overwrite the hint with stats if we successfully fetched stats (i.e., folder id is usable).
+            if (stats) renderDriveFolderStats(stats);
+            return stats;
+        }
+
+        let _driveFolderInputTimer = null;
+        function onDriveFolderInputChanged() {
+            if (_driveFolderInputTimer) clearTimeout(_driveFolderInputTimer);
+            // If user pasted a URL, normalize it to a folder id immediately.
+            try { getDriveFolderId(); } catch (e) {}
+            renderDriveFolderHint();
+            _driveFolderInputTimer = setTimeout(() => refreshDriveFolderStats(), 450);
+        }
+
+        async function driveIndex() {
+            const folderId = getDriveFolderId();
+            if (!folderId) {
+                showMessage('Paste a Drive FOLDER link/id first', 'error');
+                return;
+            }
+            // Estimate: indexing is mostly metadata; usually quick but scales with file count.
+            startDriveProgress('Indexing folder…', 2000 + 35 * 1000); // default 37s-ish until we have counts
             setDriveOutput('Indexing…');
             try {
                 const res = await fetch('/api/drive/index', {
@@ -580,17 +959,29 @@
                 if (!res.ok) throw new Error(data.error || 'Index failed');
                 setDriveOutput(data);
                 showMessage(`✅ Indexed ${data.indexed} files`, 'success');
+                // Refine estimate display after the fact for future runs (based on total_seen)
+                // (No-op here; progress bar completes on response.)
+                finishDriveProgress(true, `Indexed ${data.indexed} files`);
+                refreshDriveFolderStats();
             } catch (e) {
                 setDriveOutput({ error: e.message || String(e) });
                 showMessage('Drive index error: ' + (e.message || e), 'error');
+                finishDriveProgress(false, 'Index failed');
             }
             refreshDriveStatus();
         }
 
         async function driveExtractTopics() {
+            const stats = await driveFolderStats();
+            const approxFiles = stats ? (stats.pdf_total || stats.total || 10) : 10;
+            // Estimate: extraction downloads+parses+AI; scales roughly with files processed.
+            // This button processes one batch (limit=10).
+            const batch = 10;
+            const estMs = 6000 * Math.min(batch, approxFiles) + 4000;
+            startDriveProgress(`Extracting (batch of ${batch})…`, estMs);
             setDriveOutput('Extracting topics…');
             try {
-                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const folderId = getDriveFolderId();
                 const res = await fetch('/api/drive/extract-topics', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -600,17 +991,25 @@
                 if (!res.ok) throw new Error(data.error || 'Extract failed');
                 setDriveOutput(data);
                 showMessage(`✅ Extracted topics from ${data.count} files`, 'success');
+                finishDriveProgress(true, `Extracted ${data.count} files`);
+                refreshDriveFolderStats();
             } catch (e) {
                 setDriveOutput({ error: e.message || String(e) });
                 showMessage('Drive extract error: ' + (e.message || e), 'error');
+                finishDriveProgress(false, 'Extract failed');
             }
             refreshDriveStatus();
         }
 
         async function driveGenerateGuide() {
+            const stats = await driveFolderStats();
+            const approx = stats ? (stats.pdf_total || stats.extracted_total || 20) : 20;
+            // Estimate: one LLM call; still correlates with size of topic inventory. Heuristic.
+            const estMs = 30000 + Math.min(90000, approx * 1800);
+            startDriveProgress(`Generating concise guide… (${approx} files indexed)`, estMs);
             setDriveOutput('Generating concise guide… (this can take 30–90s)');
             try {
-                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const folderId = getDriveFolderId();
                 const res = await fetch('/api/drive/guide/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -620,15 +1019,21 @@
                 if (!res.ok) throw new Error(data.error || 'Guide generation failed');
                 setDriveOutput(data);
                 showMessage('✅ Guide generated!', 'success');
+                finishDriveProgress(true, 'Guide generated');
             } catch (e) {
                 setDriveOutput({ error: e.message || String(e) });
                 showMessage('Guide generation error: ' + (e.message || e), 'error');
+                finishDriveProgress(false, 'Guide generation failed');
             }
         }
 
         async function driveOpenGuide() {
             try {
-                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const folderId = getDriveFolderId();
+                if (!folderId) {
+                    showMessage('Paste a Drive FOLDER link/id to open the folder guide', 'error');
+                    return;
+                }
                 const qs = folderId ? `?folder_id=${encodeURIComponent(folderId)}` : '';
                 window.open(`/drive/guide/view/latest${qs}`, '_blank');
             } catch (e) {
@@ -637,9 +1042,13 @@
         }
 
         async function driveGenerateDSMidGuide() {
+            const stats = await driveFolderStats();
+            const approx = stats ? (stats.pdf_total || stats.extracted_total || 20) : 20;
+            const estMs = 45000 + Math.min(120000, approx * 2200);
+            startDriveProgress(`Generating DS (mid) guide… (${approx} files indexed)`, estMs);
             setDriveOutput('Generating DS (mid) interview guide… (this can take 45–120s)');
             try {
-                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const folderId = getDriveFolderId();
                 const res = await fetch('/api/drive/guide/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -649,15 +1058,27 @@
                 if (!res.ok) throw new Error(data.error || 'Guide generation failed');
                 setDriveOutput(data);
                 showMessage('✅ DS guide generated!', 'success');
+                finishDriveProgress(true, 'DS guide generated');
             } catch (e) {
                 setDriveOutput({ error: e.message || String(e) });
                 showMessage('DS guide generation error: ' + (e.message || e), 'error');
+                finishDriveProgress(false, 'DS guide generation failed');
             }
         }
 
         function driveOpenDSMidGuide() {
             try {
-                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const folderId = getDriveFolderId();
+                if (!folderId) {
+                    // If user pasted a file link, they should use file-mode notes instead.
+                    const fileId = getDriveFileId();
+                    if (fileId) {
+                        showMessage('That looks like a FILE link. Use “Open Notes (File)” instead.', 'error');
+                        return;
+                    }
+                    showMessage('Paste a Drive FOLDER link/id to open the folder DS guide', 'error');
+                    return;
+                }
                 const qs = new URLSearchParams();
                 qs.set('kind', 'ds_mid');
                 if (folderId) qs.set('folder_id', folderId);
@@ -668,9 +1089,14 @@
         }
 
         async function driveGenerateFlashcards() {
+            const stats = await driveFolderStats();
+            const approx = stats ? (stats.pdf_total || 10) : 10;
+            const limitFiles = 6;
+            const estMs = 15000 + Math.min(120000, Math.min(limitFiles, approx) * 12000);
+            startDriveProgress(`Generating flashcards… (${Math.min(limitFiles, approx)} PDFs)`, estMs);
             setDriveOutput('Generating flashcards… (this can take 30–120s depending on files)');
             try {
-                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const folderId = getDriveFolderId();
                 const res = await fetch('/api/drive/flashcards/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -680,23 +1106,50 @@
                 if (!res.ok) throw new Error(data.error || 'Flashcard generation failed');
                 setDriveOutput(data);
                 showMessage(`✅ Generated ${data.card_count} flashcards`, 'success');
+                finishDriveProgress(true, `Generated ${data.card_count} cards`);
                 return data;
             } catch (e) {
                 setDriveOutput({ error: e.message || String(e) });
                 showMessage('Flashcard generation error: ' + (e.message || e), 'error');
+                finishDriveProgress(false, 'Flashcard generation failed');
                 return null;
             }
         }
 
         async function driveOpenFlashcards() {
             try {
-                const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+                const folderId = getDriveFolderId();
+                if (!folderId) {
+                    const fileId = getDriveFileId();
+                    if (fileId) {
+                        showMessage('That looks like a FILE link. Use “Study Flashcards (File PDF)” instead.', 'error');
+                        return;
+                    }
+                    showMessage('Paste a Drive FOLDER link/id to study folder flashcards', 'error');
+                    return;
+                }
                 const qs = new URLSearchParams();
                 qs.set('kind', 'ds_mid');
                 if (folderId) qs.set('folder_id', folderId);
                 // If there's no deck yet, auto-generate then open (smoother flow).
                 const check = await fetch(`/api/drive/flashcards/latest?${qs.toString()}`);
-                if (!check.ok) {
+                let shouldRegen = false;
+                if (check.ok) {
+                    // If this is an older deck (before evidence gating) or contains low-quality "not answered" cards,
+                    // regenerate automatically so the user always sees the improved deck.
+                    const existing = await check.json().catch(() => null);
+                    const deckJson = existing && existing.deck_json ? String(existing.deck_json) : '';
+                    if (!deckJson) shouldRegen = true;
+                    if (deckJson && (deckJson.includes('not answered in the excerpt') || deckJson.includes('cannot be determined'))) {
+                        shouldRegen = true;
+                    }
+                    if (deckJson && !deckJson.includes('"evidence"')) {
+                        shouldRegen = true;
+                    }
+                } else {
+                    shouldRegen = true;
+                }
+                if (shouldRegen) {
                     const generated = await driveGenerateFlashcards();
                     if (!generated) return;
                 }
@@ -711,15 +1164,15 @@
             const openBtn = document.getElementById('drive-open-ds-btn');
             if (runBtn) {
                 runBtn.disabled = !!isBusy;
-                runBtn.textContent = isBusy ? (label || 'Working…') : 'Run: Index → Extract → Generate DS Guide';
+                runBtn.textContent = isBusy ? (label || 'Working…') : 'Build DS Guide';
             }
             if (openBtn) openBtn.disabled = !!isBusy;
         }
 
         async function driveRunAllDSMid() {
-            const folderId = (document.getElementById('drive-folder-id')?.value || '').trim();
+            const folderId = getDriveFolderId();
             if (!folderId) {
-                showMessage('Please paste a Drive folder ID first', 'error');
+                showMessage('Paste a Drive FOLDER link/id first', 'error');
                 return;
             }
 
@@ -738,6 +1191,7 @@
                 }
 
                 // 1) Index
+                startDriveProgress('Indexing folder…', 25000, 0, 20);
                 setDriveBusy(true, 'Indexing…');
                 setDriveOutput('Indexing folder…');
                 let res = await fetch('/api/drive/index', {
@@ -748,9 +1202,27 @@
                 let data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Index failed');
                 setDriveOutput(data);
+                await refreshDriveFolderStats();
 
                 // 2) Extract in batches
-                const maxBatches = 8; // ~80 files per run
+                // IMPORTANT: the guide only includes what we've extracted. For parent folders with many subfolders,
+                // we may need multiple runs. We'll dynamically size batches based on remaining PDFs, with a safety cap.
+                const stats = await driveFolderStats();
+                const pdfTotal = stats ? Number(stats.pdf_total || 0) : 0;
+                const extractedTotal = stats ? Number(stats.extracted_total || 0) : 0;
+                const remaining = Math.max(0, pdfTotal - extractedTotal);
+                const batchSize = 10;
+                const fullRun = !!document.getElementById('drive-full-run')?.checked;
+                const safetyCapBatches = fullRun ? 500 : 50; // full run: up to 5000 files; default: 500 files
+                const maxBatches = Math.max(1, Math.min(safetyCapBatches, Math.ceil((remaining || (batchSize * 8)) / batchSize)));
+
+                const approxFiles = stats ? (stats.pdf_total || stats.total || 20) : 20;
+                startDriveProgress(
+                    `Extracting topics… (${fullRun ? 'full run' : 'standard'} • up to ${Math.min(maxBatches * batchSize, remaining || approxFiles)} files)`,
+                    10000 + Math.min(fullRun ? 900000 : 220000, Math.min(maxBatches * batchSize, Math.max(remaining || 0, 40)) * 2500),
+                    20,
+                    60
+                );
                 for (let i = 0; i < maxBatches; i++) {
                     setDriveBusy(true, `Extracting… (${i + 1}/${maxBatches})`);
                     res = await fetch('/api/drive/extract-topics', {
@@ -766,8 +1238,10 @@
                     // Small pause so UI updates feel responsive.
                     await new Promise(r => setTimeout(r, 250));
                 }
+                await refreshDriveFolderStats();
 
                 // 3) Generate DS guide
+                startDriveProgress('Generating DS (mid) guide…', 45000 + Math.min(120000, approxFiles * 2200), 80, 20);
                 setDriveBusy(true, 'Generating DS guide…');
                 setDriveOutput('Generating DS (mid) interview guide…');
                 res = await fetch('/api/drive/guide/generate', {
@@ -779,23 +1253,33 @@
                 if (!res.ok) throw new Error(data.error || 'Guide generation failed');
                 setDriveOutput(data);
                 showMessage('✅ DS guide generated!', 'success');
+                finishDriveProgress(true, 'DS guide generated');
 
             } catch (e) {
                 setDriveOutput({ error: e.message || String(e) });
                 showMessage('Run failed: ' + (e.message || e), 'error');
+                finishDriveProgress(false, 'Run failed');
             } finally {
                 setDriveBusy(false);
                 refreshDriveStatus();
             }
         }
-        {% endif %}
+        // end Drive helpers
 
         // Initialize
         loadSettings();
         loadTopics();
-        {% if drive_enabled %}
-        refreshDriveStatus();
-        {% endif %}
+        // Initialize Drive UI only if it's present on the page
+        try {
+            if (document.getElementById('drive-status')) {
+                refreshDriveStatus();
+                const f = document.getElementById('drive-folder-id');
+                if (f) {
+                    f.addEventListener('input', onDriveFolderInputChanged);
+                    f.addEventListener('change', () => refreshDriveFolderStats());
+                }
+            }
+        } catch (e) {}
 
         // Recursive function to render a node (category/subcategory) at any depth
         function renderNode(node, path, depth = 0) {

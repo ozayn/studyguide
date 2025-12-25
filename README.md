@@ -145,3 +145,33 @@ The app supports both SQLite (local) and PostgreSQL (Railway):
 
 See `RAILWAY_DATABASE_SETUP.md` for detailed database setup instructions.
 
+## Google Drive Study Material (Local-only)
+
+This project includes an **optional Google Drive integration** to generate study notes and flashcards from your Drive course materials:
+
+- **Supported inputs**: PDFs and `.ipynb` notebooks (data files like `.csv`, `.parquet`, `.zip`, images are ignored)
+- **Single-file workflow** (recommended for iteration):
+  - Paste a Drive **file link** into Admin → Drive ID
+  - Generate **Deep dive notes** (single version) and then **flashcards derived from those notes**
+- **Folder workflow** (for later, after single-file is dialed in):
+  - Index → extract → generate folder-scoped guides/flashcards
+
+Security / deployment:
+- Drive features are intended to be **local-only** unless explicitly enabled via environment flags (to avoid exposing Drive OAuth in production).
+
+## Status / Next steps
+
+High-priority:
+- [ ] **Push latest changes to GitHub**
+- [ ] **Confirm production safety**: Drive UI/Drive endpoints remain disabled unless explicitly enabled (and only admins can access `/admin`)
+- [ ] **Verify single-file Deep dive quality** across a few different notebook types (EDA, modeling, CV/NLP, time-series)
+
+Quality improvements (single-file, then apply to folder mode):
+- [ ] **Tune extraction for `.ipynb`**: ensure we capture enough context for code workflows, common plots, and regularization (when present)
+- [ ] **Improve “Deep dive” completeness**: confirm it always includes everything the concise base would include (2-pass expand)
+- [ ] **Flashcards sanity pass**: confirm all cards are grounded in notes with evidence and remove any low-quality/duplicative cards
+
+Folder mode (after single-file is solid):
+- [ ] Apply the same deep-dive notes + notes-derived flashcards pipeline to **folder processing**
+- [ ] Validate folder scoping (no cross-folder mixing) and progress/ETA behavior on large folders
+

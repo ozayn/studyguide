@@ -419,6 +419,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS drive_guides (
             {id_col},
             folder_id TEXT,
+            file_id TEXT,
             kind TEXT,
             content_markdown TEXT,
             created_at TEXT
@@ -431,6 +432,10 @@ def init_db():
             cursor.execute('ALTER TABLE drive_guides ADD COLUMN folder_id TEXT')
         except sqlite3.OperationalError:
             pass
+        try:
+            cursor.execute('ALTER TABLE drive_guides ADD COLUMN file_id TEXT')
+        except sqlite3.OperationalError:
+            pass
     else:
         try:
             cursor.execute("""
@@ -440,6 +445,16 @@ def init_db():
             """)
             if not cursor.fetchone():
                 cursor.execute('ALTER TABLE drive_guides ADD COLUMN folder_id TEXT')
+        except Exception:
+            pass
+        try:
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='drive_guides' AND column_name='file_id'
+            """)
+            if not cursor.fetchone():
+                cursor.execute('ALTER TABLE drive_guides ADD COLUMN file_id TEXT')
         except Exception:
             pass
 
@@ -457,6 +472,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS drive_flashcard_decks (
             {id_col},
             folder_id TEXT,
+            file_id TEXT,
             kind TEXT,
             deck_json TEXT,
             created_at TEXT
@@ -467,6 +483,10 @@ def init_db():
     if not USE_POSTGRESQL:
         try:
             cursor.execute('ALTER TABLE drive_flashcard_decks ADD COLUMN folder_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE drive_flashcard_decks ADD COLUMN file_id TEXT')
         except sqlite3.OperationalError:
             pass
         try:
@@ -1142,9 +1162,13 @@ def admin():
 def drive_guide_view_latest():
     kind = (request.args.get('kind') or '').strip().lower() or None
     folder_id = (request.args.get('folder_id') or '').strip() or None
-    guide = _fetch_latest_drive_guide(kind=kind, folder_id=folder_id)
+    file_id = (request.args.get('file_id') or '').strip() or None
+    guide = _fetch_latest_drive_guide_scoped(kind=kind, folder_id=folder_id, file_id=file_id)
     if not guide:
-        guide = {'content_markdown': '# No guide generated yet\n\nGo back to Admin → Drive and click **Generate Concise Guide**.\n', 'created_at': ''}
+        if file_id:
+            guide = {'content_markdown': '# No notes generated yet\n\nGo back to Admin → Drive and click **Generate Notes (File)**.\n', 'created_at': ''}
+        else:
+            guide = {'content_markdown': '# No guide generated yet\n\nGo back to Admin → Drive and click **Generate concise guide (folder)** or **Build DS Guide (Folder)**.\n', 'created_at': ''}
     return render_template('drive_guide_view.html', guide=guide)
 
 # ---- Google Drive (PDF + ipynb) ingestion ----
@@ -1174,8 +1198,18 @@ def _drive_list_folder_recursive(service, root_folder_id, include_subfolders=Tru
 
         page_token = None
         while True:
+            # IMPORTANT: We intentionally do NOT enumerate data files (csv/parquet/zip/images/etc).
+            # We only need folders (to recurse), PDFs (slides/notes), and notebooks (.ipynb).
+            q = (
+                f"'{folder_id}' in parents and trashed=false and ("
+                "mimeType='application/vnd.google-apps.folder' "
+                "or mimeType='application/pdf' "
+                "or name contains '.pdf' "
+                "or name contains '.ipynb'"
+                ")"
+            )
             resp = service.files().list(
-                q=f"'{folder_id}' in parents and trashed=false",
+                q=q,
                 fields="nextPageToken, files(id,name,mimeType,modifiedTime,size,parents)",
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
@@ -1212,6 +1246,65 @@ def _drive_list_folder_recursive(service, root_folder_id, include_subfolders=Tru
 
     return results
 
+@app.route('/api/drive/folder/stats', methods=['GET'])
+@drive_login_required
+def drive_folder_stats():
+    """
+    Return simple per-folder counts so the UI can show an estimated-time progress bar.
+    Counts are based on what we've indexed into drive_files (not live Drive).
+    """
+    folder_id = (request.args.get('folder_id') or get_setting('drive_last_folder_id', '') or '').strip()
+    if not folder_id:
+        return jsonify({'error': 'folder_id is required'}), 400
+
+    conn = get_db()
+    try:
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, '''
+                SELECT
+                  COUNT(*) AS total,
+                  SUM(CASE WHEN (mime_type = 'application/pdf' OR lower(name) LIKE '%%.pdf') THEN 1 ELSE 0 END) AS pdf_total,
+                  SUM(CASE WHEN (lower(name) LIKE '%%.ipynb') THEN 1 ELSE 0 END) AS ipynb_total,
+                  SUM(CASE WHEN extracted_at IS NOT NULL THEN 1 ELSE 0 END) AS extracted_total,
+                  SUM(CASE WHEN text_excerpt IS NOT NULL AND length(text_excerpt) > 0 THEN 1 ELSE 0 END) AS excerpt_total
+                FROM drive_files
+                WHERE folder_id = %s
+            ''', (folder_id,))
+            row = db_fetchone(cur)
+            cur.close()
+            d = dict(row) if row else {}
+        else:
+            cur = db_execute(conn, '''
+                SELECT
+                  COUNT(*) AS total,
+                  SUM(CASE WHEN (mime_type = 'application/pdf' OR lower(name) LIKE '%.pdf') THEN 1 ELSE 0 END) AS pdf_total,
+                  SUM(CASE WHEN (lower(name) LIKE '%.ipynb') THEN 1 ELSE 0 END) AS ipynb_total,
+                  SUM(CASE WHEN extracted_at IS NOT NULL THEN 1 ELSE 0 END) AS extracted_total,
+                  SUM(CASE WHEN text_excerpt IS NOT NULL AND length(text_excerpt) > 0 THEN 1 ELSE 0 END) AS excerpt_total
+                FROM drive_files
+                WHERE folder_id = ?
+            ''', (folder_id,))
+            row = db_fetchone(cur)
+            d = dict(row) if row else {}
+    finally:
+        conn.close()
+
+    # Normalize null sums to 0
+    def n(x):
+        try:
+            return int(x or 0)
+        except Exception:
+            return 0
+
+    return jsonify({
+        'folder_id': folder_id,
+        'total': n(d.get('total')),
+        'pdf_total': n(d.get('pdf_total')),
+        'ipynb_total': n(d.get('ipynb_total')),
+        'extracted_total': n(d.get('extracted_total')),
+        'excerpt_total': n(d.get('excerpt_total')),
+    })
+
 def _drive_download_bytes(service, file_id):
     """Download a file's bytes from Drive."""
     req = service.files().get_media(fileId=file_id, supportsAllDrives=True)
@@ -1226,6 +1319,84 @@ def _drive_download_bytes(service, file_id):
         data = req.execute()
         fh.write(data if isinstance(data, (bytes, bytearray)) else bytes(data))
     return fh.getvalue()
+
+def _drive_get_file_meta(service, file_id):
+    """Fetch minimal Drive file metadata for a single file."""
+    try:
+        return service.files().get(fileId=file_id, fields="id,name,mimeType,modifiedTime,size,parents", supportsAllDrives=True).execute()
+    except Exception:
+        return None
+
+def _drive_parent_chain(service, file_meta_or_id, max_depth=4):
+    """
+    Best-effort resolve a short parent folder chain for a file.
+    Returns list of folder names from nearest parent up (nearest-first).
+    """
+    try:
+        if isinstance(file_meta_or_id, dict):
+            meta = file_meta_or_id
+        else:
+            meta = _drive_get_file_meta(service, str(file_meta_or_id))
+        if not meta:
+            return []
+        parents = meta.get('parents') or []
+        if not parents:
+            return []
+        cur_id = parents[0]
+        chain = []
+        depth = 0
+        while cur_id and depth < max_depth:
+            depth += 1
+            try:
+                f = service.files().get(fileId=cur_id, fields="id,name,parents,mimeType", supportsAllDrives=True).execute()
+            except Exception:
+                break
+            name = (f.get('name') or '').strip()
+            if name:
+                chain.append(name)
+            # stop if no more parents
+            p = f.get('parents') or []
+            if not p:
+                break
+            cur_id = p[0]
+        return chain
+    except Exception:
+        return []
+
+def _drive_parent_path_str(service, file_meta_or_id):
+    """Return a human-friendly parent path string like 'Course / Week 3 / Stats'."""
+    chain = _drive_parent_chain(service, file_meta_or_id, max_depth=5)
+    if not chain:
+        return ''
+    # chain is nearest-first; reverse for root-first display
+    parts = [p.strip() for p in reversed(chain) if str(p or '').strip()]
+    # Drop noisy prefixes
+    if parts and parts[0].lower() == 'my drive':
+        parts = parts[1:]
+    # If the path is deep, drop the top-level course container (often repetitive like "AI Course")
+    if len(parts) >= 4:
+        top = parts[0].lower()
+        if 'course' in top or 'ai' in top or 'ml' in top or 'aiml' in top:
+            parts = parts[1:]
+    return " / ".join(parts)
+
+def _drive_extract_text_for_file(service, file_id, meta=None):
+    """
+    Download a Drive file and extract text if supported.
+    Supports PDF and ipynb.
+    """
+    meta = meta or _drive_get_file_meta(service, file_id) or {}
+    name = (meta.get('name') or '').strip()
+    mime = (meta.get('mimeType') or '').strip()
+    raw = _drive_download_bytes(service, file_id)
+    is_pdf = mime == 'application/pdf' or name.lower().endswith('.pdf')
+    # Colab notebooks are often stored with mimeType 'application/vnd.google.colaboratory'
+    is_ipynb = name.lower().endswith('.ipynb') or mime in ('application/x-ipynb+json', 'application/vnd.google.colaboratory')
+    if is_pdf:
+        return _extract_text_pdf(raw), meta
+    if is_ipynb:
+        return _extract_text_ipynb(raw), meta
+    raise Exception(f"Unsupported file type for extraction: {mime or name or file_id}")
 
 def _extract_text_ipynb(raw_bytes, max_chars=120000):
     """Extract text content from a Jupyter notebook (.ipynb)."""
@@ -1776,12 +1947,23 @@ Topics:
     return (model.generate_content(prompt).text or '').strip()
 
 def _fetch_latest_drive_guide(kind=None, folder_id=None):
+    return _fetch_latest_drive_guide_scoped(kind=kind, folder_id=folder_id, file_id=None)
+
+def _fetch_latest_drive_guide_scoped(kind=None, folder_id=None, file_id=None):
     conn = get_db()
     try:
         if USE_POSTGRESQL:
-            if kind and folder_id:
+            if kind and file_id:
                 cur = db_execute(conn, '''
-                    SELECT id, folder_id, kind, content_markdown, created_at
+                    SELECT id, folder_id, file_id, kind, content_markdown, created_at
+                    FROM drive_guides
+                    WHERE kind = %s AND file_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (kind, file_id))
+            elif kind and folder_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, file_id, kind, content_markdown, created_at
                     FROM drive_guides
                     WHERE kind = %s AND folder_id = %s
                     ORDER BY created_at DESC
@@ -1789,15 +1971,23 @@ def _fetch_latest_drive_guide(kind=None, folder_id=None):
                 ''', (kind, folder_id))
             elif kind:
                 cur = db_execute(conn, '''
-                    SELECT id, folder_id, kind, content_markdown, created_at
+                    SELECT id, folder_id, file_id, kind, content_markdown, created_at
                     FROM drive_guides
                     WHERE kind = %s
                     ORDER BY created_at DESC
                     LIMIT 1
                 ''', (kind,))
+            elif file_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, file_id, kind, content_markdown, created_at
+                    FROM drive_guides
+                    WHERE file_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (file_id,))
             elif folder_id:
                 cur = db_execute(conn, '''
-                    SELECT id, folder_id, kind, content_markdown, created_at
+                    SELECT id, folder_id, file_id, kind, content_markdown, created_at
                     FROM drive_guides
                     WHERE folder_id = %s
                     ORDER BY created_at DESC
@@ -1805,7 +1995,7 @@ def _fetch_latest_drive_guide(kind=None, folder_id=None):
                 ''', (folder_id,))
             else:
                 cur = db_execute(conn, '''
-                    SELECT id, folder_id, kind, content_markdown, created_at
+                    SELECT id, folder_id, file_id, kind, content_markdown, created_at
                     FROM drive_guides
                     ORDER BY created_at DESC
                     LIMIT 1
@@ -1815,9 +2005,17 @@ def _fetch_latest_drive_guide(kind=None, folder_id=None):
             conn.close()
             return dict(row) if row else None
         # SQLite
-        if kind and folder_id:
+        if kind and file_id:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, content_markdown, created_at
+                SELECT id, folder_id, file_id, kind, content_markdown, created_at
+                FROM drive_guides
+                WHERE kind = ? AND file_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (kind, file_id))
+        elif kind and folder_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, file_id, kind, content_markdown, created_at
                 FROM drive_guides
                 WHERE kind = ? AND folder_id = ?
                 ORDER BY created_at DESC
@@ -1825,15 +2023,23 @@ def _fetch_latest_drive_guide(kind=None, folder_id=None):
             ''', (kind, folder_id))
         elif kind:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, content_markdown, created_at
+                SELECT id, folder_id, file_id, kind, content_markdown, created_at
                 FROM drive_guides
                 WHERE kind = ?
                 ORDER BY created_at DESC
                 LIMIT 1
             ''', (kind,))
+        elif file_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, file_id, kind, content_markdown, created_at
+                FROM drive_guides
+                WHERE file_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (file_id,))
         elif folder_id:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, content_markdown, created_at
+                SELECT id, folder_id, file_id, kind, content_markdown, created_at
                 FROM drive_guides
                 WHERE folder_id = ?
                 ORDER BY created_at DESC
@@ -1841,7 +2047,7 @@ def _fetch_latest_drive_guide(kind=None, folder_id=None):
             ''', (folder_id,))
         else:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, content_markdown, created_at
+                SELECT id, folder_id, file_id, kind, content_markdown, created_at
                 FROM drive_guides
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -1850,7 +2056,7 @@ def _fetch_latest_drive_guide(kind=None, folder_id=None):
         conn.close()
         if not row:
             return None
-        return {'id': row[0], 'folder_id': row[1], 'kind': row[2], 'content_markdown': row[3], 'created_at': row[4]}
+        return {'id': row[0], 'folder_id': row[1], 'file_id': row[2], 'kind': row[3], 'content_markdown': row[4], 'created_at': row[5]}
     except Exception:
         try:
             conn.close()
@@ -1954,7 +2160,7 @@ def _parse_json_array_loose(text):
 def _ai_generate_flashcards_from_excerpt(excerpt, title_hint='', n_cards=8):
     """
     Generate flashcards strictly from provided excerpt.
-    Returns a list of {q, a, level, source}.
+    Returns a list of {q, a, level, source, evidence}.
     """
     excerpt = (excerpt or '').strip()
     if not excerpt:
@@ -1977,6 +2183,7 @@ SOURCE FILE: {title_hint or "(unknown)"}
 Rules (must follow):
 - ONLY use facts/definitions/formulas that are present in the excerpt below. Do NOT add outside knowledge.
 - If the excerpt is insufficient for a card, SKIP it.
+- NEVER output answers like "not answered in the excerpt" / "not provided" / "cannot be determined".
 - Make cards interview-friendly: crisp Q, precise A.
 - Use LaTeX for formulas with proper delimiters: \\( ... \\) inline and $$ ... $$ for display.
 - Output MUST be valid JSON: an array of objects with keys:
@@ -1984,6 +2191,7 @@ Rules (must follow):
   - "a": string
   - "level": one of ["easy","medium","hard"]
   - "source": string (use the SOURCE FILE)
+-  - "evidence": string (a SHORT verbatim quote copied from the excerpt that supports the answer; must appear in the excerpt)
 - No markdown, no commentary, no code fences.
 
 Return {n_cards} cards max.
@@ -2009,6 +2217,18 @@ EXCERPT:
 
     cards = _parse_json_array_loose(out_text)
     cleaned = []
+    excerpt_lc = excerpt.lower()
+    bad_answer_markers = (
+        'not answered in the excerpt',
+        'not answered in this excerpt',
+        'not in the excerpt',
+        'not provided in the excerpt',
+        'cannot be determined from the excerpt',
+        'cannot be determined',
+        'not specified in the excerpt',
+        'not specified',
+        'not mentioned in the excerpt',
+    )
     for c in cards:
         if not isinstance(c, dict):
             continue
@@ -2016,13 +2236,357 @@ EXCERPT:
         a = str(c.get('a') or '').strip()
         level = str(c.get('level') or '').strip().lower()
         source = str(c.get('source') or title_hint or '').strip()
+        evidence = str(c.get('evidence') or '').strip()
         if not q or not a:
+            continue
+        if any(m in a.lower() for m in bad_answer_markers):
             continue
         if level not in ('easy', 'medium', 'hard'):
             level = 'medium'
         if not source:
             source = title_hint or ''
-        cleaned.append({'q': q, 'a': a, 'level': level, 'source': source})
+        # Evidence must be present in the excerpt (case-insensitive). This is our "common sense" grounding gate.
+        if evidence:
+            ev_lc = evidence.lower()
+            if ev_lc not in excerpt_lc:
+                continue
+        else:
+            # If the model didn't provide evidence, skip (prevents hallucinated / vague cards).
+            continue
+        cleaned.append({'q': q, 'a': a, 'level': level, 'source': source, 'evidence': evidence})
+    return cleaned
+
+def _ai_generate_file_notes_from_excerpt(excerpt, title_hint='', mode='notes', detail='concise'):
+    """
+    Generate a concise study note doc grounded in a single file excerpt.
+    mode:
+      - 'notes' (default): informational notes (slides/reading)
+      - 'project': ipynb project workflow / coding steps summary
+    Returns markdown.
+    """
+    excerpt = (excerpt or '').strip()
+    if not excerpt:
+        return ''
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    gemini_key = os.environ.get('GOOGLE_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    if not ((groq_key and Groq is not None) or (gemini_key and genai is not None)):
+        raise Exception('No AI API key configured (set GROQ_API_KEY or GOOGLE_API_KEY).')
+
+    detail = str(detail or 'concise').strip().lower()
+    is_detailed = detail in ('detailed', 'more', 'full', 'high')
+    is_deep = detail in ('deep', 'deep_dive', 'verbose', 'max')
+
+    def _single_pass_prompt():
+        # NOTE: This builds the prompt for a single-pass generation. For Detailed/Deep dive we use a 2-pass
+        # approach (concise base -> expand) to prevent "completeness drift" across modes.
+        if str(mode).strip().lower() == 'project':
+            return f"""
+You are summarizing an .ipynb PROJECT notebook from ONE excerpt. Stay grounded in the excerpt.
+
+SOURCE NOTEBOOK: {title_hint or "(unknown)"}
+
+Goal:
+- Produce a mid-level, interview-ready project summary focused on WHAT was done and WHY.
+
+Rules:
+- ONLY use information present in the excerpt (no guessing).
+- Prefer "workflow / steps" over generic explanations.
+- If code details are missing, omit them.
+- Use LaTeX for formulas only if present in the excerpt, with proper delimiters: \\( ... \\) inline and $$ ... $$ for display.
+- The first line MUST be a single H1 markdown title that fits this notebook.
+  - Derive it from the notebook filename and the excerpt (what task it solves).
+  - Keep it short (5–12 words).
+  - If the purpose is unclear, use: "# Notebook Notes: <notebook filename>".
+{'- Deep dive mode: be substantially more detailed than the other modes. Add specifics (params, choices, failure modes) ONLY when they appear in the excerpt.\n' if is_deep else ''}
+- IMPORTANT: Concise, Detailed, and Deep dive must be consistent and hierarchical:
+  - Detailed MUST include everything Concise would include (same topics), then add more detail.
+  - Deep dive MUST include everything Detailed would include (same topics), then add even more detail.
+  - Do NOT drop sections or switch to different topics between modes; only expand and add supported sections.
+- This notebook could be anything (CV/NLP/tabular/time-series/etc.). Include optional sections ONLY when supported by the excerpt.
+
+Output markdown with this structure:
+
+# <Notebook-specific title>
+## Source
+- Notebook: <name>
+- Context: <folder path if available>
+
+## What this project is doing ({'10–18' if is_deep else ('6–12' if is_detailed else '3–7')} bullets)
+- In Detailed/Deep dive, keep the same bullets as Concise but expand with short sub-bullets (how/why/impact) when supported.
+
+## Workflow / Coding Steps (ordered; {'8–15' if is_deep else '4–10'} steps)
+1. <step> — <what + why>
+2. ...
+- In Detailed/Deep dive, enrich steps with concrete details if present (parameters, methods, files, metrics).
+
+## Experiments / model iterations (only if present)
+- If the notebook tries multiple approaches (e.g., Model 1 vs Model 2), summarize:
+  - **What changed** (features, algorithm, hyperparams, preprocessing)
+  - **Why it changed** (hypothesis / issue it addressed)
+  - **Result** (metric / qualitative outcome, if present)
+- If only one model exists, omit this section.
+
+## Key artifacts
+- **Data inputs**: <files / tables / datasets mentioned, if any>
+- **Features / transformations**: <if any>
+- **Models / methods**: <if any>
+- **Evaluation**: <metrics / validation, if any>
+- **Outputs**: <plots / saved files / conclusions, if any>
+
+## Regularization (only if present)
+- Summarize any regularization used/mentioned in the excerpt, such as:
+  - L1/L2, weight decay, dropout, batch norm (as regularizer), early stopping
+  - data augmentation, noise injection, label smoothing
+  - cross-validation as a generalization check
+- For each item: what it is, where it’s applied, and what problem it addresses (overfitting/generalization) — ONLY if stated or clearly shown in the excerpt.
+
+{'## Plots & visual checks (detailed/deep; only if present)\n- If the excerpt includes charts/plots/figures or plotting code, summarize the *common plots* as:\n  - **Plot**: <type> — **x vs y** (or what’s being compared)\n  - **Why**: what it’s checking (distribution, correlation, learning curve, residuals, confusion matrix, feature importance, etc.)\n  - **Takeaway**: what the notebook concludes (only if stated)\n- If not present, omit.\n' if (is_detailed or is_deep) else ''}
+
+## Key code pointers (only if present; {'6–12' if is_deep else '3–8'} bullets)
+- <function / class / key block>: <what it does>
+
+## Optional sections (include only if present; expand with depth)
+- If present in the excerpt, include it in ALL modes (brief in Concise, expanded in Detailed, most detailed in Deep dive).
+- If not present, omit entirely.
+- Data & splits / leakage checks
+- Preprocessing / feature engineering
+- Baselines
+- Evaluation design (metrics, thresholds, CV)
+- Class imbalance handling
+- Hyperparameters & tuning
+- Error analysis / diagnostics
+- Interpretability (feature importance, SHAP, etc.)
+- Performance/efficiency notes (runtime/memory/GPU)
+- Deployment/repro artifacts (saved models, seeds, environment)
+
+## Interview-ready talking points ({'6–12' if is_detailed else '3–6'} bullets)
+- “I chose X because…”
+- “A key pitfall was…”
+- “I validated by…”
+- Use only what is supported by the excerpt.
+
+## Repro checklist (if possible)
+- <environment / libs>
+- <how to run>
+
+{'## Implementation details (deep dive)\n- If the excerpt contains concrete implementation choices, include:\n  - key hyperparameters and why\n  - preprocessing details and edge cases\n  - evaluation design (splits, leakage checks)\n  - biggest bottlenecks / performance issues\n- If not present, omit this section.\n\n## Decision log (deep dive; only if present)\n- Summarize notable decisions the notebook makes (and any stated reasons).\n- If not present, omit.\n\n## Failure modes & debugging notes (deep dive; only if present)\n- List issues encountered + fixes (warnings, errors, unexpected metrics) if mentioned.\n- If not present, omit.\n' if is_deep else ''}
+
+## Risks / gotchas (if any)
+- ...
+
+EXCERPT:
+{excerpt}
+""".strip()
+        return f"""
+You are creating study notes from ONE source file excerpt. You must stay grounded in the excerpt.
+
+SOURCE FILE: {title_hint or "(unknown)"}
+
+Rules:
+- ONLY use information present in the excerpt.
+- If something isn't present, omit it.
+- Keep it concise and well structured for review.
+- Use LaTeX for formulas with proper delimiters: \\( ... \\) inline and $$ ... $$ for display.
+- IMPORTANT: Concise, Detailed, and Deep dive must be consistent and hierarchical:
+  - Detailed MUST include everything Concise would include (same topics), then add more detail.
+  - Deep dive MUST include everything Detailed would include (same topics), then add even more detail.
+  - Do NOT drop sections or switch to different topics between modes; only expand and add supported sections.
+- This file could cover different topics. Include optional sections ONLY when supported by the excerpt.
+
+Output markdown with this structure:
+
+# Study Notes (Single File)
+## Source
+- File: <name>
+- Context: <folder path if available>
+
+## Summary ({'14–24' if is_deep else ('10–18' if is_detailed else '5–10')} bullets)
+- In Detailed/Deep dive, keep the same bullets as Concise but expand with short sub-bullets (how/why/intuition) when supported.
+
+## Key Concepts
+- <concept>: <1–3 bullets each>
+
+## Formulas (only if present)
+- <name>: <latex>
+
+## Regularization (only if present)
+- Summarize any regularization used/mentioned in the excerpt, such as:
+  - L1/L2, weight decay, dropout, early stopping
+  - augmentation/noise injection
+  - validation strategy that’s explicitly used to reduce overfitting (only if described)
+- For each: what it is, where it’s applied, and what it changes — ONLY if supported by the excerpt.
+
+{'## Plots & visual checks (detailed/deep; only if present)\n- If the excerpt includes charts/plots/figures or plotting code, summarize the *common plots* as:\n  - **Plot**: <type> — **x vs y** (or what’s being compared)\n  - **Why**: what it’s checking (distribution, relationship, diagnostics, etc.)\n  - **Takeaway**: what the source concludes (only if stated)\n- If not present, omit.\n' if (is_detailed or is_deep) else ''}
+
+## Common pitfalls / gotchas (if present)
+- ...
+
+{'## Deeper details (deep dive)\n- If the excerpt contains additional detail, include:\n  - assumptions\n  - step-by-step derivations (short)\n  - practical examples\n  - common confusions\n  - edge cases / limitations\n- If not present, omit.\n' if is_deep else ''}
+
+## Optional sections (include only if present; expand with depth)
+- If present in the excerpt, include it in ALL modes (brief in Concise, expanded in Detailed, most detailed in Deep dive).
+- If not present, omit entirely.
+- Key definitions & distinctions
+- Intuition / “why it works”
+- Worked example (if present)
+- Common confusions / pitfalls
+- Evaluation / metrics (if present)
+- Practical checklist / how-to steps (if present)
+
+EXCERPT:
+{excerpt}
+""".strip()
+
+    def _run_llm(prompt_text, max_tokens):
+        if groq_key and Groq is not None:
+            client = Groq(api_key=groq_key)
+            resp = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt_text}],
+                temperature=0.2,
+                max_tokens=max_tokens
+            )
+            return (resp.choices[0].message.content or '').strip()
+        genai.configure(api_key=gemini_key)
+        model_obj = genai.GenerativeModel('gemini-pro')
+        return (model_obj.generate_content(prompt_text).text or '').strip()
+
+    # 2-pass generation for Detailed/Deep dive: generate a concise base, then expand it.
+    if is_detailed or is_deep:
+        base_detail = 'concise'
+        # First pass: concise base notes (same excerpt) so all modes share the same "completeness" backbone.
+        # We can't call ourselves recursively without re-entering this block; do the concise prompt directly:
+        base_is_detailed = False
+        base_is_deep = False
+        # temporarily shadow the flags by building a concise prompt explicitly
+        saved_is_detailed, saved_is_deep = is_detailed, is_deep
+        try:
+            is_detailed = base_is_detailed
+            is_deep = base_is_deep
+            concise_prompt = _single_pass_prompt()
+        finally:
+            is_detailed, is_deep = saved_is_detailed, saved_is_deep
+        base_notes = _run_llm(concise_prompt, max_tokens=1800)
+
+        # Second pass: expand the base notes in-place, without dropping content.
+        expand_level = 'Deep dive' if is_deep else 'Detailed'
+        expand_rules = f"""
+You are given BASE NOTES that were generated from the same excerpt. Your job:
+- Produce an expanded version at level: {expand_level}.
+- Keep the SAME outline and topics as the base notes.
+- DO NOT remove or shorten any existing sections/bullets from the base notes.
+- Only add: (a) sub-bullets, (b) clarifying detail, (c) extra supported sections that are clearly present in the excerpt but missing from the base.
+- If you add new sections, place them in the most appropriate location and keep headings consistent.
+- Stay fully grounded in the excerpt; do not add outside knowledge.
+""".strip()
+
+        expand_prompt = f"""
+{expand_rules}
+
+SOURCE: {title_hint or "(unknown)"}
+
+EXCERPT (ground truth):
+{excerpt}
+
+BASE NOTES (do not delete; expand in-place):
+{base_notes}
+""".strip()
+
+        max_out = 3200 if is_deep else 2400
+        return _run_llm(expand_prompt, max_tokens=max_out)
+
+    prompt = _single_pass_prompt()
+
+    return _run_llm(prompt, max_tokens=1800)
+
+def _ai_generate_flashcards_from_notes(notes_markdown, title_hint='', n_cards=24):
+    """
+    Generate flashcards from ALREADY GENERATED notes markdown.
+    This yields more "study-smart" cards (active recall) and stays aligned with the notes.
+    Returns list of {q, a, level, source, evidence}.
+    """
+    notes = (notes_markdown or '').strip()
+    if not notes:
+        return []
+    if n_cards < 6:
+        n_cards = 6
+    if n_cards > 80:
+        n_cards = 80
+
+    groq_key = os.environ.get('GROQ_API_KEY') or os.getenv('GROQ_API_KEY')
+    gemini_key = os.environ.get('GOOGLE_API_KEY') or os.getenv('GOOGLE_API_KEY')
+    if not ((groq_key and Groq is not None) or (gemini_key and genai is not None)):
+        raise Exception('No AI API key configured (set GROQ_API_KEY or GOOGLE_API_KEY).')
+
+    prompt = f"""
+You are converting study notes into flashcards for efficient review.
+
+SOURCE: {title_hint or "(notes)"}
+
+Rules (must follow):
+- ONLY use information present in the notes below. Do NOT add outside knowledge.
+- Ask questions that test understanding (definitions, key distinctions, steps, assumptions, pitfalls, formulas).
+- Do NOT create cards that are not answered by the notes.
+- Output MUST be valid JSON: an array of objects with keys:
+  - "q": string
+  - "a": string
+  - "level": one of ["easy","medium","hard"]
+  - "evidence": string (SHORT verbatim quote copied from the notes that supports the answer; must appear in the notes)
+- No markdown, no commentary, no code fences.
+
+Return up to {n_cards} cards.
+
+NOTES:
+{notes}
+""".strip()
+
+    out_text = ''
+    if groq_key and Groq is not None:
+        client = Groq(api_key=groq_key)
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=2000
+        )
+        out_text = (resp.choices[0].message.content or '').strip()
+    else:
+        genai.configure(api_key=gemini_key)
+        model = genai.GenerativeModel('gemini-pro')
+        out_text = (model.generate_content(prompt).text or '').strip()
+
+    cards = _parse_json_array_loose(out_text)
+    cleaned = []
+    notes_lc = notes.lower()
+    bad_answer_markers = (
+        'not answered in the notes',
+        'not answered in the excerpt',
+        'not in the notes',
+        'not provided',
+        'cannot be determined',
+        'not specified',
+        'not mentioned',
+    )
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        q = str(c.get('q') or '').strip()
+        a = str(c.get('a') or '').strip()
+        level = str(c.get('level') or '').strip().lower()
+        # Don't trust model-provided source; force a stable source derived from the notes we used.
+        source = str(title_hint or '').strip()
+        evidence = str(c.get('evidence') or '').strip()
+        if not q or not a or not evidence:
+            continue
+        if any(m in a.lower() for m in bad_answer_markers):
+            continue
+        if level not in ('easy', 'medium', 'hard'):
+            level = 'medium'
+        if not source:
+            source = 'Notes'
+        if evidence.lower() not in notes_lc:
+            continue
+        cleaned.append({'q': q, 'a': a, 'level': level, 'source': source, 'evidence': evidence})
     return cleaned
 
 def _normalize_math_delimiters_backend(markdown):
@@ -2043,19 +2607,35 @@ def _normalize_math_delimiters_backend(markdown):
     s = s.replace('\\\\(', '\\(').replace('\\\\)', '\\)')
     s = s.replace('\\\\[', '\\[').replace('\\\\]', '\\]')
 
-    # Replace "( <latex-like> )" -> "\\( <latex-like> \\)" conservatively.
-    # We only convert when the inside contains a LaTeX command or ^/_.
-    def repl(m):
-        inner = (m.group(1) or '').strip()
+    def looks_like_latex(inner: str) -> bool:
         if not inner:
-            return m.group(0)
+            return False
         if ('\\left' in inner) or ('\\right' in inner):
-            return m.group(0)
-        if not (re.search(r'\\[A-Za-z]+', inner) or re.search(r'[_^]', inner)):
+            return False
+        return bool(re.search(r'\\[A-Za-z]+', inner) or re.search(r'[_^]', inner))
+
+    # 1) Safe replacement for NON-NESTED parentheses only: "( ... )" where "..." contains no other parentheses.
+    # This avoids truncating expressions like "( \\text{...} = (a+b) \\times c )".
+    def repl_non_nested(m):
+        inner = (m.group(1) or '').strip()
+        if not looks_like_latex(inner):
             return m.group(0)
         return f"\\( {inner} \\)"
 
-    return re.sub(r'\(\s*([^\)]*?)\s*\)', repl, s)
+    s = re.sub(r'\(\s*([^()]*)\s*\)', repl_non_nested, s)
+
+    # 2) Whole-line wrapper: if a line starts with "(" and ends with ")" and looks LaTeX-like,
+    # wrap the entire inside (handles nested parentheses safely at the line level).
+    out_lines = []
+    for line in s.splitlines():
+        t = line.strip()
+        if len(t) >= 3 and t.startswith('(') and t.endswith(')'):
+            inner = t[1:-1].strip()
+            if looks_like_latex(inner):
+                out_lines.append(line.replace(t, f"\\( {inner} \\)"))
+                continue
+        out_lines.append(line)
+    return "\n".join(out_lines)
 
 @app.route('/api/drive/guide/latest', methods=['GET'])
 @drive_login_required
@@ -2063,7 +2643,8 @@ def drive_guide_latest():
     """Fetch the latest generated Drive guide."""
     kind = (request.args.get('kind') or '').strip().lower() or None
     folder_id = (request.args.get('folder_id') or '').strip() or None
-    guide = _fetch_latest_drive_guide(kind=kind, folder_id=folder_id)
+    file_id = (request.args.get('file_id') or '').strip() or None
+    guide = _fetch_latest_drive_guide_scoped(kind=kind, folder_id=folder_id, file_id=file_id)
     if not guide:
         return jsonify({'error': 'No guide generated yet'}), 404
     return jsonify(guide)
@@ -2265,117 +2846,28 @@ def drive_flashcards_generate():
     max_total = max(10, min(300, max_total))
 
     # Pull a larger candidate set; we'll auto-fill missing excerpts for the most recent files.
-    conn = get_db()
-    candidates = []
-    try:
-        if USE_POSTGRESQL:
-            cur = db_execute(conn, '''
-                SELECT file_id, name, path, mime_type, text_excerpt
-                FROM drive_files
-                WHERE folder_id = %s
-                ORDER BY extracted_at DESC NULLS LAST, indexed_at DESC NULLS LAST
-                LIMIT %s
-            ''', (folder_id, max(limit_files * 4, limit_files),))
-            candidates = [dict(r) for r in db_fetchall(cur)]
-            cur.close()
-        else:
-            cur = db_execute(conn, '''
-                SELECT file_id, name, path, mime_type, text_excerpt
-                FROM drive_files
-                WHERE folder_id = ?
-                ORDER BY extracted_at DESC, indexed_at DESC
-                LIMIT ?
-            ''', (folder_id, max(limit_files * 4, limit_files),))
-            rows = db_fetchall(cur)
-            candidates = [{'file_id': r[0], 'name': r[1], 'path': r[2], 'mime_type': r[3], 'text_excerpt': r[4]} for r in rows]
-    finally:
-        conn.close()
+    # Flashcards are sourced from PDFs only (per user preference).
+    # NEW: flashcards are generated FROM THE GENERATED NOTES/GUIDE for this folder (study-smart).
+    # We use the latest DS guide (ds_mid) as the "notes" source.
+    guide = _fetch_latest_drive_guide_scoped(kind='ds_mid', folder_id=folder_id, file_id=None)
+    if not guide:
+        return jsonify({'error': 'No DS guide found for this folder. Click “Build DS Guide” first, then generate flashcards.'}), 400
+    notes_md = str(guide.get('content_markdown') or '').strip()
+    if not notes_md:
+        return jsonify({'error': 'DS guide is empty. Regenerate the guide then retry flashcards.'}), 400
 
-    if not candidates:
-        return jsonify({'error': 'No indexed files found for this folder. Run Index Folder first.'}), 400
-
-    # Auto-fill excerpts (fast) if missing, so user doesn't have to rerun extraction with force.
-    filled = 0
-    for f in candidates:
-        if filled >= limit_files:
-            break
-        if f.get('text_excerpt'):
-            filled += 1
-            continue
-        file_id = f.get('file_id')
-        name = (f.get('name') or '')
-        mime = (f.get('mime_type') or '')
-        if not file_id:
-            continue
-        try:
-            raw = _drive_download_bytes(svc, file_id)
-            is_pdf = mime == 'application/pdf' or name.lower().endswith('.pdf')
-            is_ipynb = name.lower().endswith('.ipynb') or mime in ('application/x-ipynb+json',)
-            if is_ipynb:
-                text = _extract_text_ipynb(raw)
-            elif is_pdf:
-                text = _extract_text_pdf(raw)
-            else:
-                continue
-            excerpt = (text or '').replace('\x00', '').strip()[:20000]
-            if not excerpt:
-                continue
-            conn = get_db()
-            try:
-                if USE_POSTGRESQL:
-                    cur = db_execute(conn, 'UPDATE drive_files SET text_excerpt = %s WHERE file_id = %s', (excerpt, file_id))
-                    cur.close()
-                else:
-                    db_execute(conn, 'UPDATE drive_files SET text_excerpt = ? WHERE file_id = ?', (excerpt, file_id))
-                conn.commit()
-            finally:
-                conn.close()
-            f['text_excerpt'] = excerpt
-            filled += 1
-        except Exception:
-            # Non-fatal; we'll keep going.
-            continue
-
-    files = [f for f in candidates if (f.get('text_excerpt') and str(f.get('text_excerpt')).strip())][:limit_files]
-    if not files:
-        return jsonify({'error': 'Could not extract any usable excerpts. Try Extract Topics, or check that folder contains PDFs/.ipynb.'}), 400
-
-    cards = []
-    seen = set()
-    per_file_results = []
-    for f in files:
-        if len(cards) >= max_total:
-            break
-        name = (f.get('name') or '').strip()
-        path = (f.get('path') or '').strip()
-        title_hint = name or path or (f.get('file_id') or '')
-        excerpt = f.get('text_excerpt') or ''
-        try:
-            new_cards = _ai_generate_flashcards_from_excerpt(excerpt, title_hint=title_hint, n_cards=cards_per_file)
-            added = 0
-            for c in new_cards:
-                q = str(c.get('q') or '').strip()
-                a = str(c.get('a') or '').strip()
-                key = (q.lower(), a.lower())
-                if not q or not a:
-                    continue
-                if key in seen:
-                    continue
-                seen.add(key)
-                cards.append(c)
-                added += 1
-                if len(cards) >= max_total:
-                    break
-            per_file_results.append({'file': title_hint, 'cards': added})
-        except Exception as e:
-            per_file_results.append({'file': title_hint, 'error': str(e)})
+    title_hint = f"DS Guide (Folder) {folder_id}"
+    cards = _ai_generate_flashcards_from_notes(notes_md, title_hint=title_hint, n_cards=min(max_total, max(18, cards_per_file * max(1, min(limit_files, 8)))))
+    if not cards:
+        return jsonify({'error': 'Could not generate grounded flashcards from the generated guide. Try regenerating the guide.'}), 400
 
     deck_obj = {
         'kind': kind,
         'folder_id': folder_id,
+        'file_id': None,
         'created_at': datetime.now(timezone.utc).isoformat(),
-        'cards': cards,
-        'files': per_file_results
+        'cards': cards[:max_total],
+        'files': [{'file': 'ds_mid_guide', 'cards': len(cards[:max_total])}]
     }
 
     # Persist deck
@@ -2385,8 +2877,8 @@ def drive_flashcards_generate():
         deck_json = json.dumps(deck_obj, ensure_ascii=False)
         if USE_POSTGRESQL:
             cur = db_execute(conn, '''
-                INSERT INTO drive_flashcard_decks (folder_id, kind, deck_json, created_at)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO drive_flashcard_decks (folder_id, file_id, kind, deck_json, created_at)
+                VALUES (%s, NULL, %s, %s, %s)
                 RETURNING id
             ''', (folder_id, kind, deck_json, now))
             row = db_fetchone(cur)
@@ -2394,21 +2886,201 @@ def drive_flashcards_generate():
             deck_id = dict(row).get('id') if row else None
         else:
             cur = db_execute(conn, '''
-                INSERT INTO drive_flashcard_decks (folder_id, kind, deck_json, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO drive_flashcard_decks (folder_id, file_id, kind, deck_json, created_at)
+                VALUES (?, NULL, ?, ?, ?)
             ''', (folder_id, kind, deck_json, now))
             deck_id = cur.lastrowid
         conn.commit()
     finally:
         conn.close()
 
-    return jsonify({'ok': True, 'id': deck_id, 'kind': kind, 'folder_id': folder_id, 'card_count': len(cards), 'files': per_file_results})
+    return jsonify({'ok': True, 'id': deck_id, 'kind': kind, 'folder_id': folder_id, 'card_count': len(deck_obj['cards']), 'files': deck_obj.get('files')})
 
-def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
+@app.route('/api/drive/file/flashcards/generate', methods=['POST'])
+@drive_login_required
+def drive_file_flashcards_generate():
+    """
+    Generate flashcards for a single Drive file.
+    Flashcards are PDF-only (per user preference).
+    """
+    data = request.get_json(silent=True) or {}
+    file_id = (data.get('file_id') or '').strip()
+    if not file_id:
+        return jsonify({'error': 'file_id is required'}), 400
+
+    kind = (data.get('kind') or 'file_pdf').strip().lower() or 'file_pdf'
+    # Default to deep dive single-file notes so we have one "best" notes version.
+    notes_kind = (data.get('notes_kind') or 'file_notes_deep').strip().lower() or 'file_notes_deep'
+    cards_count = int(data.get('cards_count') or 18)
+    cards_count = max(6, min(40, cards_count))
+
+    svc = _drive_service_for_session()
+    if not svc:
+        return jsonify({'error': 'Drive not connected', 'auth_url': '/auth/login?drive=1'}), 401
+
+    # NEW: flashcards are generated FROM THE GENERATED NOTES for this file (study-smart).
+    # Ensure we have notes; if not, generate them first (PDF or ipynb notes).
+    guide = _fetch_latest_drive_guide_scoped(kind=notes_kind, folder_id=None, file_id=file_id)
+    if not guide:
+        # generate notes on-demand
+        meta = _drive_get_file_meta(svc, file_id) or {}
+        name = (meta.get('name') or '').strip()
+        parent_path = _drive_parent_path_str(svc, meta)
+        try:
+            text, _ = _drive_extract_text_for_file(svc, file_id, meta=meta)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 400
+        # Deep dive notes need more context; feed a larger excerpt to the notes generator.
+        max_chars = 80000 if notes_kind == 'file_notes_deep' else (45000 if notes_kind == 'file_notes_detailed' else 35000)
+        excerpt = (text or '').replace('\x00', '').strip()[:max_chars]
+        if not excerpt:
+            return jsonify({'error': 'No extractable text found in this file.'}), 400
+        title_hint = f"{parent_path} / {name}".strip(" /") if (parent_path or name) else file_id
+        detail = 'deep' if notes_kind == 'file_notes_deep' else ('detailed' if notes_kind == 'file_notes_detailed' else 'concise')
+        is_ipynb = name.lower().endswith('.ipynb') or (meta.get('mimeType') in ('application/x-ipynb+json', 'application/vnd.google.colaboratory'))
+        content = _ai_generate_file_notes_from_excerpt(excerpt, title_hint=title_hint, mode=('project' if is_ipynb else 'notes'), detail=detail)
+        content = _normalize_math_delimiters_backend(content)
+        created_at = datetime.now(timezone.utc).isoformat()
+        conn = get_db()
+        try:
+            if USE_POSTGRESQL:
+                cur = db_execute(conn, '''
+                    INSERT INTO drive_guides (folder_id, file_id, kind, content_markdown, created_at)
+                    VALUES (NULL, %s, %s, %s, %s)
+                ''', (file_id, notes_kind, content, created_at))
+                cur.close()
+            else:
+                db_execute(conn, '''
+                    INSERT INTO drive_guides (folder_id, file_id, kind, content_markdown, created_at)
+                    VALUES (NULL, ?, ?, ?, ?)
+                ''', (file_id, notes_kind, content, created_at))
+            conn.commit()
+        finally:
+            conn.close()
+        guide = {'content_markdown': content}
+
+    notes_md = str(guide.get('content_markdown') or '').strip()
+    if not notes_md:
+        return jsonify({'error': 'File notes are empty. Regenerate notes then retry flashcards.'}), 400
+
+    # Best-effort title for UX
+    meta = _drive_get_file_meta(svc, file_id) or {}
+    name = (meta.get('name') or '').strip()
+    parent_path = _drive_parent_path_str(svc, meta)
+    title_hint = f"{parent_path} / {name}".strip(" /") if (parent_path or name) else file_id
+
+    cards = _ai_generate_flashcards_from_notes(notes_md, title_hint=title_hint, n_cards=min(80, cards_count))
+    if not cards:
+        return jsonify({'error': 'Could not generate grounded flashcards from the generated notes. Try regenerating notes.'}), 400
+
+    deck_obj = {
+        'kind': kind,
+        'folder_id': None,
+        'file_id': file_id,
+        'created_at': datetime.now(timezone.utc).isoformat(),
+        'cards': cards,
+        'files': [{'file': title_hint or file_id, 'cards': len(cards)}]
+    }
+
+    conn = get_db()
+    try:
+        now = deck_obj['created_at']
+        deck_json = json.dumps(deck_obj, ensure_ascii=False)
+        if USE_POSTGRESQL:
+            cur = db_execute(conn, '''
+                INSERT INTO drive_flashcard_decks (folder_id, file_id, kind, deck_json, created_at)
+                VALUES (NULL, %s, %s, %s, %s)
+                RETURNING id
+            ''', (file_id, kind, deck_json, now))
+            row = db_fetchone(cur)
+            cur.close()
+            deck_id = dict(row).get('id') if row else None
+        else:
+            cur = db_execute(conn, '''
+                INSERT INTO drive_flashcard_decks (folder_id, file_id, kind, deck_json, created_at)
+                VALUES (NULL, ?, ?, ?, ?)
+            ''', (file_id, kind, deck_json, now))
+            deck_id = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({'ok': True, 'id': deck_id, 'file_id': file_id, 'kind': kind, 'card_count': len(cards), 'name': name})
+
+@app.route('/api/drive/file/guide/generate', methods=['POST'])
+@drive_login_required
+def drive_file_guide_generate():
+    """Generate study notes for a single Drive file (PDF or ipynb)."""
+    data = request.get_json(silent=True) or {}
+    file_id = (data.get('file_id') or '').strip()
+    if not file_id:
+        return jsonify({'error': 'file_id is required'}), 400
+
+    # Default to deep dive single-file notes so we have one "best" notes version.
+    kind = (data.get('kind') or 'file_notes_deep').strip().lower() or 'file_notes_deep'
+
+    svc = _drive_service_for_session()
+    if not svc:
+        return jsonify({'error': 'Drive not connected', 'auth_url': '/auth/login?drive=1'}), 401
+
+    meta = _drive_get_file_meta(svc, file_id) or {}
+    name = (meta.get('name') or '').strip()
+    parent_path = _drive_parent_path_str(svc, meta)
+    mime = (meta.get('mimeType') or '').strip()
+
+    try:
+        text, _ = _drive_extract_text_for_file(svc, file_id, meta=meta)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+    # Deep dive notes need more context; feed a larger excerpt to the generator.
+    max_chars = 80000 if kind == 'file_notes_deep' else (45000 if kind == 'file_notes_detailed' else 35000)
+    excerpt = (text or '').replace('\x00', '').strip()[:max_chars]
+    if not excerpt:
+        return jsonify({'error': 'No extractable text found in this file.'}), 400
+
+    title_hint = f"{parent_path} / {name}".strip(" /") if (parent_path or name) else file_id
+    is_ipynb = name.lower().endswith('.ipynb') or mime in ('application/x-ipynb+json', 'application/vnd.google.colaboratory')
+    detail = 'deep' if kind == 'file_notes_deep' else ('detailed' if kind == 'file_notes_detailed' else 'concise')
+    content = _ai_generate_file_notes_from_excerpt(excerpt, title_hint=title_hint, mode=('project' if is_ipynb else 'notes'), detail=detail)
+    content = _normalize_math_delimiters_backend(content)
+
+    created_at = datetime.now(timezone.utc).isoformat()
     conn = get_db()
     try:
         if USE_POSTGRESQL:
-            if kind and folder_id:
+            cur = db_execute(conn, '''
+                INSERT INTO drive_guides (folder_id, file_id, kind, content_markdown, created_at)
+                VALUES (NULL, %s, %s, %s, %s)
+            ''', (file_id, kind, content, created_at))
+            cur.close()
+        else:
+            db_execute(conn, '''
+                INSERT INTO drive_guides (folder_id, file_id, kind, content_markdown, created_at)
+                VALUES (NULL, ?, ?, ?, ?)
+            ''', (file_id, kind, content, created_at))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({'message': 'File notes generated', 'file_id': file_id, 'kind': kind, 'created_at': created_at, 'name': name, 'mime_type': mime})
+
+def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
+    return _fetch_latest_flashcard_deck_scoped(kind=kind, folder_id=folder_id, file_id=None)
+
+def _fetch_latest_flashcard_deck_scoped(kind=None, folder_id=None, file_id=None):
+    conn = get_db()
+    try:
+        if USE_POSTGRESQL:
+            if kind and file_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, deck_json, created_at
+                    FROM drive_flashcard_decks
+                    WHERE kind = %s AND file_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (kind, file_id))
+            elif kind and folder_id:
                 cur = db_execute(conn, '''
                     SELECT id, folder_id, kind, deck_json, created_at
                     FROM drive_flashcard_decks
@@ -2424,6 +3096,14 @@ def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
                     ORDER BY created_at DESC
                     LIMIT 1
                 ''', (kind,))
+            elif file_id:
+                cur = db_execute(conn, '''
+                    SELECT id, folder_id, kind, deck_json, created_at
+                    FROM drive_flashcard_decks
+                    WHERE file_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (file_id,))
             elif folder_id:
                 cur = db_execute(conn, '''
                     SELECT id, folder_id, kind, deck_json, created_at
@@ -2445,11 +3125,19 @@ def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
             if not row:
                 return None
             d = dict(row)
-            return {'id': d.get('id'), 'folder_id': d.get('folder_id'), 'kind': d.get('kind'), 'deck_json': d.get('deck_json'), 'created_at': d.get('created_at')}
+            return {'id': d.get('id'), 'folder_id': d.get('folder_id'), 'file_id': d.get('file_id'), 'kind': d.get('kind'), 'deck_json': d.get('deck_json'), 'created_at': d.get('created_at')}
         # SQLite
-        if kind and folder_id:
+        if kind and file_id:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, deck_json, created_at
+                SELECT id, folder_id, file_id, kind, deck_json, created_at
+                FROM drive_flashcard_decks
+                WHERE kind = ? AND file_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (kind, file_id))
+        elif kind and folder_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, file_id, kind, deck_json, created_at
                 FROM drive_flashcard_decks
                 WHERE kind = ? AND folder_id = ?
                 ORDER BY created_at DESC
@@ -2457,15 +3145,23 @@ def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
             ''', (kind, folder_id))
         elif kind:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, deck_json, created_at
+                SELECT id, folder_id, file_id, kind, deck_json, created_at
                 FROM drive_flashcard_decks
                 WHERE kind = ?
                 ORDER BY created_at DESC
                 LIMIT 1
             ''', (kind,))
+        elif file_id:
+            cur = db_execute(conn, '''
+                SELECT id, folder_id, file_id, kind, deck_json, created_at
+                FROM drive_flashcard_decks
+                WHERE file_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            ''', (file_id,))
         elif folder_id:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, deck_json, created_at
+                SELECT id, folder_id, file_id, kind, deck_json, created_at
                 FROM drive_flashcard_decks
                 WHERE folder_id = ?
                 ORDER BY created_at DESC
@@ -2473,7 +3169,7 @@ def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
             ''', (folder_id,))
         else:
             cur = db_execute(conn, '''
-                SELECT id, folder_id, kind, deck_json, created_at
+                SELECT id, folder_id, file_id, kind, deck_json, created_at
                 FROM drive_flashcard_decks
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -2482,7 +3178,7 @@ def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
         conn.close()
         if not row:
             return None
-        return {'id': row[0], 'folder_id': row[1], 'kind': row[2], 'deck_json': row[3], 'created_at': row[4]}
+        return {'id': row[0], 'folder_id': row[1], 'file_id': row[2], 'kind': row[3], 'deck_json': row[4], 'created_at': row[5]}
     except Exception:
         try:
             conn.close()
@@ -2495,7 +3191,8 @@ def _fetch_latest_flashcard_deck(kind=None, folder_id=None):
 def drive_flashcards_latest():
     kind = (request.args.get('kind') or '').strip().lower() or None
     folder_id = (request.args.get('folder_id') or '').strip() or None
-    deck = _fetch_latest_flashcard_deck(kind=kind, folder_id=folder_id)
+    file_id = (request.args.get('file_id') or '').strip() or None
+    deck = _fetch_latest_flashcard_deck_scoped(kind=kind, folder_id=folder_id, file_id=file_id)
     if not deck:
         return jsonify({'error': 'No flashcard deck generated yet'}), 404
     return jsonify(deck)
@@ -2505,7 +3202,8 @@ def drive_flashcards_latest():
 def drive_flashcards_view_latest():
     kind = (request.args.get('kind') or '').strip().lower() or None
     folder_id = (request.args.get('folder_id') or '').strip() or None
-    deck = _fetch_latest_flashcard_deck(kind=kind, folder_id=folder_id)
+    file_id = (request.args.get('file_id') or '').strip() or None
+    deck = _fetch_latest_flashcard_deck_scoped(kind=kind, folder_id=folder_id, file_id=file_id)
     if not deck:
         return "No flashcard deck generated yet.", 404
     try:

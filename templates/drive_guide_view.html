@@ -167,13 +167,43 @@
       const out = lines.map((line) => {
         // Only convert parenthesized segments that look like LaTeX (contain backslash commands or ^/_).
         // We keep it conservative to avoid breaking normal parentheses.
-        return line.replace(/:\s*\(\s*([^\)]*?)\s*\)/g, (m, inner) => {
+        // IMPORTANT: avoid naive regex-based "( ... )" matching here.
+        // Your CNN formula contains nested parentheses, and a regex like ([^)]+) will truncate at the first ')'
+        // which can make the rest of the expression appear "removed".
+        let next = String(line);
+        // Also handle standalone "( ...latex... )" not preceded by ":" (common in copied notes).
+        // IMPORTANT: we must respect nested parentheses. A naive regex will stop at the first ')'
+        // and effectively "eat" part of the expression (this is what caused your formula to disappear).
+        const isLatexLike = (s) => (/\\[a-zA-Z]+/.test(s) || /[_^]/.test(s));
+        const pairs = [];
+        const stack = [];
+        for (let i = 0; i < next.length; i++) {
+          const ch = next[i];
+          const prev = i > 0 ? next[i - 1] : '';
+          if (ch === '(' && prev !== '\\') stack.push(i);
+          else if (ch === ')' && stack.length) {
+            const start = stack.pop();
+            pairs.push([start, i]);
+          }
+        }
+        // Keep only OUTERMOST pairs (avoid index shifts from nested replacements).
+        const outer = pairs.filter(([s1, e1]) => {
+          for (const [s2, e2] of pairs) {
+            if (s2 < s1 && e2 > e1) return false;
+          }
+          return true;
+        }).sort((a, b) => b[0] - a[0]); // replace right-to-left
+
+        for (const [start, end] of outer) {
+          const inner = next.slice(start + 1, end);
           const s = String(inner || '').trim();
-          if (!s) return m;
-          if (!(/\\[a-zA-Z]+/.test(s) || /[_^]/.test(s))) return m;
-          // IMPORTANT: we want literal "\(" and "\)" in the markdown so KaTeX auto-render can detect delimiters.
-          return `: \\(${s}\\)`;
-        });
+          if (!s) continue;
+          if (!isLatexLike(s)) continue;
+          // Don't wrap if it's already "\(" (escaped), i.e. previous char is '\'
+          if (start > 0 && next[start - 1] === '\\') continue;
+          next = next.slice(0, start) + `\\(${s}\\)` + next.slice(end + 1);
+        }
+        return next;
       });
       return out.join('\n');
     }
